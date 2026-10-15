@@ -1,0 +1,3 @@
+version: "1.0.0"
+adjudication:
+  min_independent: 2

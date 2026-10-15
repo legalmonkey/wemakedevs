@@ -9,6 +9,8 @@ from agents.llm_adapter import LLMAdapterProtocol, StubLLMAdapter
 from agents.stub_client import StubGraphClient
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
+from agents.adjudicator import AdjudicatorAgent
+from agents.dispatcher import DispatcherAgent
 
 __all__ = [
     "BaseAgent",
@@ -21,4 +23,6 @@ __all__ = [
     "StubGraphClient",
     "SentinelAgent",
     "TracerAgent",
+    "AdjudicatorAgent",
+    "DispatcherAgent",
 ]
