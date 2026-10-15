@@ -126,5 +126,78 @@ tests/test_lint.py::test_project_lint PASSED                             [100%]
 ```
 
 ### Human Review & Approval Gate (Section 0 Rule 10)
-Status: Awaiting human review and `APPROVED` response before proceeding to Phase B2.
+Status: APPROVED by User at 2026-10-15T15:27:03+05:30. Proceeding to Phase B2.
+
+---
+
+## Phase B2: MCP Server with Gate Evaluator; dynamic tool list and algorithm tools
+
+- **Status**: COMPLETED (Pending Review & Approval)
+- **Phase Deliverable**: MCP server with gate evaluator; tool list is computed per decision from graph state; algorithm tools registered.
+- **Exit Check Requirement**: "A hold on an untainted batch is refused because the tool is absent"
+- **Owner**: Part B
+
+### Completed Tasks
+- [x] Task 1: Declare gate expressions in `config/gates.yaml` (`hold_unit`, `release_unit`, `draft_notice`, `algo_shortest_path`, `algo_centrality`, `algo_components`). Zero tool names or domain Cypher values hardcoded in code.
+- [x] Task 2: Implement Gate Evaluator in `toolserver/gate_evaluator.py` (`GateEvaluator`). Evaluates parameterised Cypher gates dynamically before tool list is built every time.
+- [x] Task 3: Implement Dynamic FastMCP Server in `toolserver/server.py` (`build_scoped_mcp_server`). Computes tool list per decision/entity; registers only unlocked tools; registers at least two graph algorithm tools (shortest path, centrality, components); writes `Action` nodes with stored causal path (`causal_path`).
+- [x] Task 4: Export `GateEvaluator` and `build_scoped_mcp_server` in `toolserver/__init__.py`.
+- [x] Task 5: Build comprehensive test suite in `tests/test_b2_toolserver_gates.py` verifying:
+  - Hold tool is absent on untainted batch and calling it raises `NotFoundError`
+  - Hold tool is unlocked on tainted batch and persists causal path
+  - Tool list visibly changes when graph state changes
+  - Shortest path, centrality, and connected components tools are exposed and callable over MCP
+- [x] Task 6: Run lint and phase exit check.
+
+### Lint Check Output
+```
+Command: python scripts/lint.py
+Output:
+Linting complete: 20 files inspected.
+All lint checks PASSED cleanly (zero syntax errors, zero raw hex colors).
+```
+
+### Exit Check Output
+```
+Command: python -m pytest tests/test_b2_toolserver_gates.py -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 4 items
+
+tests/test_b2_toolserver_gates.py::test_b2_untainted_batch_hold_refused_because_absent PASSED [ 25%]
+tests/test_b2_toolserver_gates.py::test_b2_tainted_batch_hold_present_and_executable PASSED [ 50%]
+tests/test_b2_toolserver_gates.py::test_b2_tool_list_visibly_changes_with_graph_state PASSED [ 75%]
+tests/test_b2_toolserver_gates.py::test_b2_algorithm_tools_exposed_and_callable_over_mcp PASSED [100%]
+
+============================== 4 passed in 1.58s ==============================
+```
+
+Full test suite verification:
+```
+Command: python -m pytest -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 10 items
+
+tests/test_b0_loop.py::test_frozen_contracts_integrity PASSED            [ 10%]
+tests/test_b0_loop.py::test_stub_graph_client_query_api_protocol PASSED  [ 20%]
+tests/test_b0_loop.py::test_b0_event_loop_runs_against_stub_graph PASSED [ 30%]
+tests/test_b0_loop.py::test_llm_adapter_contract_adherence PASSED        [ 40%]
+tests/test_b1_sentinel_tracer.py::test_b1_sentinel_and_tracer_exit_check PASSED [ 50%]
+tests/test_b2_toolserver_gates.py::test_b2_untainted_batch_hold_refused_because_absent PASSED [ 60%]
+tests/test_b2_toolserver_gates.py::test_b2_tainted_batch_hold_present_and_executable PASSED [ 70%]
+tests/test_b2_toolserver_gates.py::test_b2_tool_list_visibly_changes_with_graph_state PASSED [ 80%]
+tests/test_b2_toolserver_gates.py::test_b2_algorithm_tools_exposed_and_callable_over_mcp PASSED [ 90%]
+tests/test_lint.py::test_project_lint PASSED                             [100%]
+
+============================= 10 passed in 2.32s ==============================
+```
+
+### Human Review & Approval Gate (Section 0 Rule 10)
+Status: Awaiting human review and `APPROVED` response before proceeding to Phase B3.
+
 

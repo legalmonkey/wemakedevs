@@ -382,17 +382,28 @@ class StubGraphClient(QueryAPIProtocol):
             if callable(evaluator):
                 allowed, reason = evaluator(params, self)
             else:
-                # Default evaluation based on target node status
-                entity_id = params.get("entity_id")
-                target = self.nodes.get(entity_id) if entity_id else None
-                if target:
-                    # Example check: is entity tainted?
-                    is_tainted = bool(target.properties.get("is_tainted", False))
-                    allowed = is_tainted
-                    reason = "Entity is tainted" if allowed else "Entity is not tainted"
+                cypher_lower = cypher.lower()
+                if "return true" in cypher_lower and "where" not in cypher_lower:
+                    allowed = True
+                    reason = "Tool is unconditionally unlocked by gate"
                 else:
-                    allowed = False
-                    reason = "Target entity not found in graph"
+                    entity_id = params.get("entity_id")
+                    target = self.nodes.get(entity_id) if entity_id else None
+                    if not target:
+                        allowed = False
+                        reason = f"Target entity '{entity_id}' not found in graph"
+                    elif "is_tainted = false" in cypher_lower:
+                        is_tainted = bool(target.properties.get("is_tainted", False))
+                        allowed = not is_tainted
+                        reason = "Entity is untainted" if allowed else "Entity is tainted (locked)"
+                    elif "is_tainted = true" in cypher_lower:
+                        is_tainted = bool(target.properties.get("is_tainted", False))
+                        allowed = is_tainted
+                        reason = "Entity is tainted" if allowed else "Entity is not tainted (locked)"
+                    else:
+                        allowed = True
+                        reason = "Gate query evaluated to true"
+
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         return QueryResult(

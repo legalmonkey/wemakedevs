@@ -1,0 +1,44 @@
+version: "1.0.0"
+gates:
+  - tool_name: "hold_unit"
+    description: "Place quarantine hold on a tainted unit"
+    cypher_query: "MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true RETURN count(u) > 0 AS allowed"
+    required_parameters:
+      - "entity_id"
+    target_role: "Unit"
+
+  - tool_name: "release_unit"
+    description: "Reaffirm and release an untainted or validated unit"
+    cypher_query: "MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = false RETURN count(u) > 0 AS allowed"
+    required_parameters:
+      - "entity_id"
+    target_role: "Unit"
+
+  - tool_name: "draft_notice"
+    description: "Draft an exposure notification for recipients of tainted shipments"
+    cypher_query: "MATCH (u:Unit {id: $entity_id})-[:ships-in]->(s:Shipment) WHERE u.is_tainted = true RETURN count(s) > 0 AS allowed"
+    required_parameters:
+      - "entity_id"
+    target_role: "Unit"
+
+  - tool_name: "algo_shortest_path"
+    description: "Find shortest chain-of-custody path between two nodes in graph"
+    cypher_query: "RETURN true AS allowed"
+    required_parameters:
+      - "source_id"
+      - "target_id"
+    target_role: "all"
+
+  - tool_name: "algo_centrality"
+    description: "Calculate betweenness centrality to identify chokepoint lots"
+    cypher_query: "RETURN true AS allowed"
+    required_parameters:
+      - "scope"
+    target_role: "all"
+
+  - tool_name: "algo_components"
+    description: "Identify connected components for incident clustering"
+    cypher_query: "RETURN true AS allowed"
+    required_parameters:
+      - "scope"
+    target_role: "all"
