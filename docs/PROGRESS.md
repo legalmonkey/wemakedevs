@@ -65,4 +65,66 @@ tests/test_lint.py::test_project_lint PASSED                             [100%]
 ```
 
 ### Human Review & Approval Gate (Section 0 Rule 10)
-Status: Awaiting human review and `APPROVED` response before proceeding to Phase B1.
+Status: APPROVED by User at 2026-10-15T15:20:42+05:30. Proceeding to Phase B1.
+
+---
+
+## Phase B1: Sentinel and Tracer against Query API; write Event and TAINTS edges
+
+- **Status**: COMPLETED (Pending Review & Approval)
+- **Phase Deliverable**: Sentinel and Tracer against the Query API as it lands; write `Event` and `TAINTS` edges.
+- **Exit Check Requirement**: "Trace writes hops and via-path for a generated incident"
+- **Owner**: Part B
+
+### Completed Tasks
+- [x] Task 1: Implement Sentinel agent in `agents/sentinel.py` (`SentinelAgent`). Detects unhandled `Event` nodes, flags target `Evidence` as suspect, marks `Event` as processed (idempotent), and emits `event.received` and `evidence.suspect` events.
+- [x] Task 2: Implement Tracer agent in `agents/tracer.py` (`TracerAgent`). Advances hop-by-hop across graph relationships (including `SUPPORT`, `DERIVES_FROM`, `SHIPS_IN`, `DELIVERED_TO`, and `LATERAL_LINK`), writes `TAINTS` edges with `hops` and `via_path` properties, and emits `taint.added` events.
+- [x] Task 3: Export Sentinel and Tracer agents in `agents/__init__.py`.
+- [x] Task 4: Enhance `agents/stub_client.py` with graph query and mutation methods for hop-by-hop traversal and query logging.
+- [x] Task 5: Build incident topology test in `tests/test_b1_sentinel_tracer.py` verifying multi-hop taint propagation, lateral link handling, and exact `hops` / `via_path` attributes.
+- [x] Task 6: Run lint and phase exit check.
+
+### Lint Check Output
+```
+Command: python scripts/lint.py
+Output:
+Linting complete: 17 files inspected.
+All lint checks PASSED cleanly (zero syntax errors, zero raw hex colors).
+```
+
+### Exit Check Output
+```
+Command: python -m pytest tests/test_b1_sentinel_tracer.py -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 1 item
+
+tests/test_b1_sentinel_tracer.py::test_b1_sentinel_and_tracer_exit_check PASSED [100%]
+
+============================== 1 passed in 0.61s ==============================
+```
+
+Full test suite verification:
+```
+Command: python -m pytest -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 6 items
+
+tests/test_b0_loop.py::test_frozen_contracts_integrity PASSED            [ 16%]
+tests/test_b0_loop.py::test_stub_graph_client_query_api_protocol PASSED  [ 33%]
+tests/test_b0_loop.py::test_b0_event_loop_runs_against_stub_graph PASSED [ 50%]
+tests/test_b0_loop.py::test_llm_adapter_contract_adherence PASSED        [ 66%]
+tests/test_b1_sentinel_tracer.py::test_b1_sentinel_and_tracer_exit_check PASSED [ 83%]
+tests/test_lint.py::test_project_lint PASSED                             [100%]
+
+============================== 6 passed in 1.08s ==============================
+```
+
+### Human Review & Approval Gate (Section 0 Rule 10)
+Status: Awaiting human review and `APPROVED` response before proceeding to Phase B2.
+

@@ -91,6 +91,71 @@ class StubGraphClient(QueryAPIProtocol):
         self.edges.append(edge)
         return edge
 
+    def get_node(self, node_id: str) -> Optional[InMemoryNode]:
+        return self.nodes.get(node_id)
+
+    def update_node(self, node_id: str, properties: Dict[str, Any]) -> bool:
+        node = self.nodes.get(node_id)
+        if node:
+            node.properties.update(properties)
+            self.executed_queries.append(f"MATCH (n {{id: '{node_id}'}}) SET n += {properties}")
+            return True
+        return False
+
+    def find_nodes_by_role(
+        self,
+        role: NodeRole,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[InMemoryNode]:
+        query_text = f"MATCH (n:{role.value}) RETURN n"
+        self.executed_queries.append(query_text)
+        results = [n for n in self.nodes.values() if n.role == role]
+        if filters:
+            for k, v in filters.items():
+                results = [n for n in results if n.properties.get(k) == v]
+        return results
+
+    def get_outgoing_edges(
+        self,
+        node_id: str,
+        role: Optional[EdgeRole] = None,
+    ) -> List[InMemoryEdge]:
+        edges = [e for e in self.edges if e.source_id == node_id]
+        if role:
+            edges = [e for e in edges if e.role == role]
+        return edges
+
+    def get_incoming_edges(
+        self,
+        node_id: str,
+        role: Optional[EdgeRole] = None,
+    ) -> List[InMemoryEdge]:
+        edges = [e for e in self.edges if e.target_id == node_id]
+        if role:
+            edges = [e for e in edges if e.role == role]
+        return edges
+
+    def write_taints_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        hops: int,
+        via_path: List[str],
+    ) -> InMemoryEdge:
+        cypher = (
+            f"MATCH (s {{id: '{source_id}'}}), (t {{id: '{target_id}'}}) "
+            f"CREATE (s)-[:TAINTS {{hops: {hops}, via_path: {via_path}}}]->(t)"
+        )
+        self.executed_queries.append(cypher)
+        return self.add_edge(
+            source_id=source_id,
+            target_id=target_id,
+            kind="TAINTS",
+            role=EdgeRole.TAINTS,
+            properties={"hops": hops, "via_path": via_path},
+        )
+
+
     def register_gate(
         self,
         tool_name: str,
