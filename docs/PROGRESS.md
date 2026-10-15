@@ -272,7 +272,85 @@ tests/test_lint.py::test_project_lint PASSED                             [100%]
 ```
 
 ### Human Review & Approval Gate (Section 0 Rule 10)
-Status: Awaiting human review and `APPROVED` response before proceeding to Phase B4.
+Status: APPROVED by User at 2026-10-15T15:58:09+05:30. Proceeding to Phase B4.
+
+---
+
+## Phase B4: Episodes, procedure ranking from outcome edges, minimum-evidence rule, concurrent multi-tenant run
+
+- **Status**: COMPLETED (Pending Review & Approval)
+- **Phase Deliverable**: Episodes and procedure ranking from outcome edges with the minimum-evidence threshold from policy; one real LLM judgement task; concurrent two-tenant run.
+- **Exit Check Requirement**: "Below threshold the system says so and asks a human instead of claiming it learned"
+- **Owner**: Part B
+
+### Completed Tasks
+- [x] Task 1: Declare `min_evidence_episodes: 3` in `config/policy.yaml` (zero hardcoding of thresholds).
+- [x] Task 2: Implement Procedural Memory in `agents/memory.py` (`ProceduralMemory`, `ProceduralRankingResult`, `ProcedureEvaluation`). Ranks procedures strictly from recorded graph outcome edges (`EPISODE_OUTCOME`). Memory is strictly described as ranked by stored graph outcomes, never as training or learning of the model.
+- [x] Task 3: Implement Minimum-Evidence Rule: When total recorded episodes < `min_evidence_episodes`, the system honestly declares evidence insufficient and escalates to a human with a drafted consultation question instead of claiming it learned.
+- [x] Task 4: Verify real LLM judgement task: When Adjudicator encounters unverifiable records, model drafts specific question for human naming missing link using only graph facts; never issues verdicts or sets status.
+- [x] Task 5: Implement and verify concurrent two-tenant run with isolated per-tenant graphs and concurrent event loops (`asyncio.gather`), proving zero cross-tenant contamination.
+- [x] Task 6: Export memory classes in `agents/__init__.py`.
+- [x] Task 7: Build test suite in `tests/test_b4_memory_multitenant.py`.
+- [x] Task 8: Run lint and phase exit check.
+
+### Lint Check Output
+```
+Command: python scripts/lint.py
+Output:
+Linting complete: 25 files inspected.
+All lint checks PASSED cleanly (zero syntax errors, zero raw hex colors).
+```
+
+### Exit Check Output
+```
+Command: python -m pytest tests/test_b4_memory_multitenant.py -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 4 items
+
+tests/test_b4_memory_multitenant.py::test_b4_exit_check_below_threshold_asks_human_not_claiming_learned PASSED [ 25%]
+tests/test_b4_memory_multitenant.py::test_b4_above_threshold_procedures_ranked_by_stored_outcomes PASSED [ 50%]
+tests/test_b4_memory_multitenant.py::test_b4_llm_judgement_task_on_unverifiable PASSED [ 75%]
+tests/test_b4_memory_multitenant.py::test_b4_concurrent_two_tenant_run PASSED [100%]
+
+============================== 4 passed in 0.34s ==============================
+```
+
+Full test suite verification:
+```
+Command: python -m pytest -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 17 items
+
+tests/test_b0_loop.py::test_frozen_contracts_integrity PASSED            [  5%]
+tests/test_b0_loop.py::test_stub_graph_client_query_api_protocol PASSED  [ 11%]
+tests/test_b0_loop.py::test_b0_event_loop_runs_against_stub_graph PASSED [ 17%]
+tests/test_b0_loop.py::test_llm_adapter_contract_adherence PASSED        [ 23%]
+tests/test_b1_sentinel_tracer.py::test_b1_sentinel_and_tracer_exit_check PASSED [ 29%]
+tests/test_b2_toolserver_gates.py::test_b2_untainted_batch_hold_refused_because_absent PASSED [ 35%]
+tests/test_b2_toolserver_gates.py::test_b2_tainted_batch_hold_present_and_executable PASSED [ 41%]
+tests/test_b2_toolserver_gates.py::test_b2_tool_list_visibly_changes_with_graph_state PASSED [ 47%]
+tests/test_b2_toolserver_gates.py::test_b2_algorithm_tools_exposed_and_callable_over_mcp PASSED [ 52%]
+tests/test_b3_adjudicator_dispatcher.py::test_b3_adjudicator_verdict_order_and_config_change PASSED [ 58%]
+tests/test_b3_adjudicator_dispatcher.py::test_b3_dispatcher_action_nodes_and_human_approval PASSED [ 64%]
+tests/test_b3_adjudicator_dispatcher.py::test_b3_exit_check_kill_and_restart_identical_graph_state PASSED [ 70%]
+tests/test_b4_memory_multitenant.py::test_b4_exit_check_below_threshold_asks_human_not_claiming_learned PASSED [ 76%]
+tests/test_b4_memory_multitenant.py::test_b4_above_threshold_procedures_ranked_by_stored_outcomes PASSED [ 82%]
+tests/test_b4_memory_multitenant.py::test_b4_llm_judgement_task_on_unverifiable PASSED [ 88%]
+tests/test_b4_memory_multitenant.py::test_b4_concurrent_two_tenant_run PASSED [ 94%]
+tests/test_lint.py::test_project_lint PASSED                             [100%]
+
+============================= 17 passed in 2.91s ==============================
+```
+
+### Human Review & Approval Gate (Section 0 Rule 10)
+Status: Awaiting human review and `APPROVED` response before proceeding to Phase B5.
+
 
 
 

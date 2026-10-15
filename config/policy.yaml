@@ -1,3 +1,5 @@
 version: "1.0.0"
 adjudication:
   min_independent: 2
+memory:
+  min_evidence_episodes: 3

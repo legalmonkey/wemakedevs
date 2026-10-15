@@ -11,6 +11,7 @@ from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
 from agents.adjudicator import AdjudicatorAgent
 from agents.dispatcher import DispatcherAgent
+from agents.memory import ProceduralMemory, ProceduralRankingResult, ProcedureEvaluation
 
 __all__ = [
     "BaseAgent",
@@ -25,4 +26,7 @@ __all__ = [
     "TracerAgent",
     "AdjudicatorAgent",
     "DispatcherAgent",
+    "ProceduralMemory",
+    "ProceduralRankingResult",
+    "ProcedureEvaluation",
 ]
