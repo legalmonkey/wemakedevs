@@ -1,0 +1,116 @@
+version: "1.0.0"
+pack_name: "pharma"
+description: "Pharmaceutical batch release and serialized cold-chain custody ontology"
+
+nodes:
+  - kind: "ActiveIngredientLot"
+    role: "Evidence"
+    description: "Active pharmaceutical ingredient (API) certified batch"
+    properties:
+      purity_percent: "number"
+      lot_hash: "string"
+
+  - kind: "AssayValidation"
+    role: "Evidence"
+    description: "GMP HPLC potency chromatography assay"
+    properties:
+      assay_method: "string"
+      passed: "boolean"
+
+  - kind: "ReleaseDecision"
+    role: "Decision"
+    description: "Qualified Person (QP) batch release certification"
+    properties:
+      verdict: "string"
+
+  - kind: "VialBatch"
+    role: "Unit"
+    description: "Serialized sterile injectable vial batch"
+    properties:
+      is_tainted: "boolean"
+      status: "string"
+
+  - kind: "ColdBox"
+    role: "Shipment"
+    description: "Temperature-monitored shipper unit"
+    properties:
+      tracking_id: "string"
+
+  - kind: "HospitalPharmacy"
+    role: "Recipient"
+    description: "Licensed healthcare provider recipient"
+    properties:
+      license_no: "string"
+
+  - kind: "RecallEvent"
+    role: "Event"
+    description: "Pharmacovigilance alert or raw lot impurity recall"
+    properties:
+      target_evidence_id: "string"
+      reason: "string"
+
+  - kind: "QuarantineHold"
+    role: "Action"
+    description: "Urgent inventory quarantine hold"
+    properties:
+      causal_path: "array"
+      requires_approval: "boolean"
+
+  - kind: "RecallEpisode"
+    role: "Episode"
+    description: "Recorded recall event tracking"
+    properties:
+      procedure_id: "string"
+      outcome: "string"
+
+  - kind: "RecallProcedure"
+    role: "Procedure"
+    description: "Class I recall procedure"
+    properties:
+      procedure_name: "string"
+
+edges:
+  - kind: "SUPPORTS"
+    role: "support"
+    source_role: "Evidence"
+    target_role: "Decision"
+    description: "Evidence supporting QP release decision"
+
+  - kind: "DERIVES_FROM"
+    role: "derives-from"
+    source_role: "Unit"
+    target_role: "Evidence"
+    description: "Finished drug formulation derived from API lot"
+
+  - kind: "SHIPS_IN"
+    role: "ships-in"
+    source_role: "Unit"
+    target_role: "Shipment"
+    description: "Batch packaged into cold-chain shipper"
+
+  - kind: "DELIVERED_TO"
+    role: "delivered-to"
+    source_role: "Shipment"
+    target_role: "Recipient"
+    description: "Shipper delivered to hospital pharmacy"
+
+  - kind: "SHARED_INGREDIENT"
+    role: "lateral-link"
+    source_role: "Unit"
+    target_role: "Unit"
+    description: "Lateral association between batches sharing common API precursor"
+
+  - kind: "TAINTS"
+    role: "TAINTS"
+    source_role: "Evidence"
+    target_role: "Decision"
+    description: "Taint propagation edge"
+    properties:
+      hops: "integer"
+      via_path: "array"
+
+  - kind: "EPISODE_OUTCOME"
+    role: "episode-outcome"
+    source_role: "Episode"
+    target_role: "Procedure"
+    description: "Episode outcome relation"
