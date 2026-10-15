@@ -1,0 +1,1 @@
+MATCH path = (start {id: $event_id})-[:DELIVERED_TO|DERIVES_FROM|SHARED_INGREDIENT|SHIPS_IN|SUPPORTS*1..10]->(target) RETURN target.id AS entity_id, labels(target)[0] AS entity_kind, length(path) AS hops, [n IN nodes(path) | n.id] AS via_path, properties(target) AS properties

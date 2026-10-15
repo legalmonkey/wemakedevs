@@ -1,0 +1,1 @@
+MATCH (d {id: $decision_id})<-[:SUPPORTS]-(ev) RETURN ev.id AS evidence_id, labels(ev)[0] AS evidence_kind, ev.valid AS is_valid, ev.unverifiable AS is_unverifiable, ev.group_id AS group_id, properties(ev) AS properties
