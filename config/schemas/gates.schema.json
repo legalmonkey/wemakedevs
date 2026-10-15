@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GatesConfiguration",
+  "type": "object",
+  "required": ["version", "gates"],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool_name", "description", "cypher_query", "required_parameters", "target_role"],
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "cypher_query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required_parameters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_role": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

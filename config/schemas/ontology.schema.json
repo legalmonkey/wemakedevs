@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OntologyConfiguration",
+  "type": "object",
+  "required": ["version", "pack_name", "nodes", "edges"],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "pack_name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "role"],
+        "properties": {
+          "kind": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": ["Evidence", "Decision", "Unit", "Shipment", "Recipient", "Event", "Action", "Episode", "Procedure"]
+          },
+          "description": { "type": "string" },
+          "properties": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "role", "source_role", "target_role"],
+        "properties": {
+          "kind": { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": ["support", "derives-from", "ships-in", "delivered-to", "lateral-link", "TAINTS", "episode-outcome"]
+          },
+          "source_role": { "type": "string" },
+          "target_role": { "type": "string" },
+          "description": { "type": "string" },
+          "properties": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

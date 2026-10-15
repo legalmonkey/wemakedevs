@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TenantsConfiguration",
+  "type": "object",
+  "required": ["version", "tenants"],
+  "properties": {
+    "version": { "type": "string" },
+    "tenants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tenant_id", "graph_name"],
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "graph_name": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

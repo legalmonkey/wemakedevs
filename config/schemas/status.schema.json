@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StatusRegistryConfiguration",
+  "type": "object",
+  "required": ["version", "statuses", "tokens"],
+  "properties": {
+    "version": { "type": "string" },
+    "statuses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "stamp_text", "ink_token"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "stamp_text": { "type": "string" },
+          "ink_token": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}
