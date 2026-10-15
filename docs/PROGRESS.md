@@ -779,10 +779,119 @@ tests/test_lint.py::test_project_lint PASSED                             [100%]
 ============================= 19 passed in 1.82s ==============================
 ```
 
+---
+
+## Phase C0: Design Brief, Tokens, Contracts & Skeleton (Hours 0 to 3)
+- **Status:** COMPLETED — APPROVED
+- **Deliverables:**
+  - [x] Design brief and banned list committed ([`docs/DESIGN_BRIEF.md`](file:///c:/Users/rajar/Desktop/coding/wemakedevs2/docs/DESIGN_BRIEF.md))
+  - [x] Design token definition & contracts drafted ([`contracts/registry_contract.json`](file:///c:/Users/rajar/Desktop/coding/wemakedevs2/contracts/registry_contract.json), [`contracts/event_contract.json`](file:///c:/Users/rajar/Desktop/coding/wemakedevs2/contracts/event_contract.json), [`api/tokens.json`](file:///c:/Users/rajar/Desktop/coding/wemakedevs2/api/tokens.json))
+  - [x] FastAPI skeleton with `/api/registry` and `/api/events` SSE endpoint ([`api/main.py`](file:///c:/Users/rajar/Desktop/coding/wemakedevs2/api/main.py))
+  - [x] Next.js evidence board UI skeleton configured to paper-and-ink styling ([`ui/src/app/page.tsx`](file:///c:/Users/rajar/Desktop/coding/wemakedevs2/ui/src/app/page.tsx))
+  - [x] Tests passing in `tests/part_c/test_api_c0.py` (3 passed) and ESLint clean in `ui/`
+- **Exit Check:** Brief and banned list committed
+
+---
+
+## Phase C1 & C2: Dynamic Registry, Event Streaming, Graph Canvas & Multi-Agent Integration
+- **Status:** COMPLETED — APPROVED
+- **Deliverables:**
+  - [x] Ingested Track A (`engine/`, `config/`, `packs/`, `scenarios/`) and Track B (`agents/`, `toolserver/`).
+  - [x] Unified repository structure according to Section 3 of the Build Roadmap.
+  - [x] Dynamic `/api/registry` endpoint serving statuses, design system tokens, vocabulary, and node presentation.
+  - [x] Real-time SSE event pipeline dispatching `EventEnvelope` streams from the agent event loop.
+  - [x] Interactive SVG forensic graph canvas on the 60% viewport layout:
+    - Renders node kinds with distinct shapes (Evidence diamond, Decision hexagon, Unit rect, Shipment circle, Recipient octagon).
+    - Dynamic signal ink stamps: `SUSPECT` (ochre/amber), `HOLD` / `TAINTED` (brick red), `REAFFIRMED` (forest laurel green).
+    - Causal taint edges (dashed red with hop counters) and lateral link contamination edges (dashed amber).
+    - Screen size constraint: Fixed canvas viewport bounds, `preserveAspectRatio="xMidYMid meet"`, `overflow: hidden`, and 100vh height locking to prevent canvas from exceeding screen size.
+- **Exit Check:** "Canvas shows a live incident from real agents" (Verified end-to-end).
+
+---
+
+## Phase C3: Why Drawer, Real State Stamps, Human Gate Approval & Evaluation Benchmark
+- **Status:** COMPLETED — APPROVED
+- **Deliverables:**
+  - [x] **Why Drawer (Rule 7)**: Slides out on node or action click, displaying the complete retrieved chain-of-custody path (Event -> Suspect Evidence -> Decision -> Units -> Lateral Link -> Shipment -> Recipient -> Action).
+  - [x] **Human-in-the-Loop Gate Approval**: Operator approval button for drafted notices and quarantine actions (`POST /api/actions/{action_id}/approve`).
+  - [x] **Evaluation Benchmark Report (`GET /api/evaluation`)**: Runs the Part A Phase A4 benchmark harness, displaying:
+    - Precision vs Naive Blanket Recall (~25% surgical scope vs 100% blanket facility recall).
+    - False-Reaffirm Count: strictly **0** on generated ground truth.
+    - Lateral Link Recall: **100%** recall on unplanned batch contamination.
+    - Stored Path Explanation Coverage: **100%**.
+  - [x] **Tool Gate Verifier (`POST /api/tools/gate-check`)**: Evaluates Cypher gates in real time, proving that a hold on an untainted batch is refused because the tool is absent from the unlocked set.
+  - [x] **Naive vs Tainted Counter**: Real-time counter header comparing blanket scope to surgical taint scope.
+
+---
+
+## Phase C4: Timed Demo Runs, Pitch, Fallback Recording (Hours 31 to 36)
+- **Status:** COMPLETED — AWAITING HUMAN APPROVAL
+- **Deliverables:**
+  - [x] Three clean demo runs executed on fresh seeds (Seed 710, Seed 825, Seed 942). Each run completed well under 3 minutes (~3-5 ms agent quiescent execution; ~2s paced UI streaming).
+  - [x] Each run demonstrates:
+    - Exactly 1 reaffirmation beat (independent valid support groups >= min_independent).
+    - Exactly 1 lateral link traversal (unplanned batch contaminated via shared equipment/lot).
+    - Verified chain-of-custody Why drawer causal path retrieval for all actions.
+    - Human operator approval governance on drafted notices.
+  - [x] Fallback demo recording captured and verified:
+    - Video Recording Artifact: `fallback_demo_recording_1792081416235.webp`
+  - [x] Three-minute demo script finalized and rehearsed (see below).
+  - [x] Automated Phase C4 exit check suite passing in `tests/part_c/test_c4_demo_runs.py`.
+- **Exit Check:** "Three clean 3-minute runs on fresh seeds"
+
+### Fresh Seeds Telemetry (Exit Check Verification)
+
+| Seed | Tenant ID | Runtime | Reaffirmation Beats | Lateral Taints | Dispatched Actions | Stored Path Length | Human Approval | Blanket Avoidance |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **710** | `tenant-demo-seed-710` | 0.0035s | 1 (`dec-reaff-*`) | 1 (`unit-lateral-*`) | 3 | 7 hops | Verified (`approved=True`) | 75.0% precision gain |
+| **825** | `tenant-demo-seed-825` | 0.0033s | 1 (`dec-reaff-*`) | 1 (`unit-lateral-*`) | 3 | 7 hops | Verified (`approved=True`) | 75.0% precision gain |
+| **942** | `tenant-demo-seed-942` | 0.0032s | 1 (`dec-reaff-*`) | 1 (`unit-lateral-*`) | 3 | 7 hops | Verified (`approved=True`) | 75.0% precision gain |
+
+### Automated Phase C4 Exit Check Output
+```text
+Command: python -m pytest tests/part_c/test_c4_demo_runs.py -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\rajar\Desktop\coding\wemakedevs2
+collected 2 items
+
+tests/part_c/test_c4_demo_runs.py::test_c4_three_clean_demo_runs PASSED  [ 50%]
+tests/part_c/test_c4_demo_runs.py::test_c4_why_drawer_and_evaluation_genuine PASSED [100%]
+
+============================= 2 passed in 13.22s ==============================
+```
+
+---
+
+## Final Three-Minute Demo Script (Section 8 Rehearsal)
+
+| Time | Demo Beat | Visible Proof on Screen | Graph & Agent Mechanism |
+| :--- | :--- | :--- | :--- |
+| **0:00 - 0:20** | **Calm Paper Canvas** | Initial calm paper evidence board rendered with 14 nodes; header shows online status and "Agent: READY". | Graph topology seeded from fresh seed; all decisions and shipments resting on trusted sensor reading. |
+| **0:20 - 0:40** | **Alert Arrival & Sentinel Ingestion** | Click "Seed 101" / "Fresh Seed"; Sentinel ledger entry appears; affected evidence reading stamps turn ochre (`SUSPECT`). | Sentinel polls graph for unprocessed `AlertEvent`, flags evidence node, and emits `event.received` and `evidence.suspect`. |
+| **0:40 - 1:20** | **Hop-by-Hop Trace Propagation** | Dashed red taint edges propagate forward through decisions, batches, and shipments; live Cypher queries print in query log. | Tracer evaluates `MATCH path = (ev:Evidence)-[:SUPPORT|SHIPS_IN*]->(target)` Cypher query, recording hops and via-path. |
+| **1:20 - 1:50** | **The Reaffirmation Beat (The "Green" Moment)** | Decision node with independent support groups flips quietly to laurel green `REAFFIRMED`; counter widget shows "Saved: 75.0%". | Adjudicator evaluates support in Cypher: decision with >= 2 independent valid groups stands reaffirmed while single-supported decision taints. |
+| **1:50 - 2:20** | **Hidden Lateral Link Traversal** | Lateral hop dashed amber line links tainted batch to an unplanned batch of another product (`unit-lateral-*`). | Tracer discovers `LATERAL_LINK` edge (shared lot/equipment), proving multi-hop reasoning beyond direct hierarchy. |
+| **2:20 - 2:40** | **Dispatched Actions & Human Governance** | Quarantine holds placed; customer exposure notice drafted; operator clicks "Approve Action Notice", stamping `APPROVED`. | Dispatcher creates Action nodes with `requires_approval=True`; human-in-the-loop gate executes over API. |
+| **2:40 - 3:00** | **Why Drawer & Scientific Benchmark** | Click decision/action node: Why drawer slides open with complete chain-of-custody strip; Evaluation tab proves 0 false reaffirms and 100% lateral recall. | Graph `explain(action)` returns stored causal trajectory (Rule 7); Evaluation harness proves precision over naive recall. |
+
+---
+
+## Final Project Verification Summary
+
+```text
+============================= 50 passed in 18.16s =============================
+- Part A Tests (A0 to A5): 19 passed
+- Part B Tests (B0 to B5): 19 passed
+- Part C Tests (C0 to C4): 12 passed
+- Python Linter (scripts/lint.py): 44 files inspected, 0 violations
+- Next.js ESLint & Turbopack production build: Clean (0 errors, 0 warnings)
+- Active Services:
+  - FastAPI Server: http://127.0.0.1:8001 (Healthy, 200 OK)
+  - Next.js UI: http://localhost:3000 (Responsive 100vh layout)
+  - Fallback Recording: fallback_demo_recording_1792081416235.webp
+```
+
 ### Human Review & Approval Gate (Section 0 Rule 10)
-Status: All Part B phases ([B0] through [B5]) successfully completed. Awaiting human final review and approval.
-
-
-
-
-
+Status: All Part C phases (C0 through C4) successfully completed and verified. Awaiting human final review and approval.

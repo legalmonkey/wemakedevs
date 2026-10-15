@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TaintedRegistryContract",
+  "description": "Registry schema for /api/registry returned from backend to UI. Governs status tokens, vocabulary, and ontology visual mapping.",
+  "type": "object",
+  "required": ["version", "theme_tokens", "statuses", "vocabulary", "node_presentation"],
+  "properties": {
+    "version": { "type": "string" },
+    "theme_tokens": {
+      "type": "object",
+      "required": ["paper_base", "paper_sunken", "paper_elevated", "ink_primary", "ink_secondary", "ink_muted", "ink_border", "signal_inks"],
+      "properties": {
+        "paper_base": { "type": "string" },
+        "paper_sunken": { "type": "string" },
+        "paper_elevated": { "type": "string" },
+        "ink_primary": { "type": "string" },
+        "ink_secondary": { "type": "string" },
+        "ink_muted": { "type": "string" },
+        "ink_border": { "type": "string" },
+        "signal_inks": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "statuses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "stamp_text", "ink_token"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "stamp_text": { "type": "string" },
+          "ink_token": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "vocabulary": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "node_presentation": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label", "badge", "shape"],
+        "properties": {
+          "label": { "type": "string" },
+          "badge": { "type": "string" },
+          "shape": { "type": "string" }
+        }
+      }
+    }
+  }
+}

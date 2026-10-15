@@ -9,3 +9,9 @@ After Hour 3, contracts are frozen and change only through an approved change no
 - `contracts/events.py`: SSE event contract and envelope schema with no domain words in event types.
 - `contracts/registry.py`: Statuses, vocabulary, and node presentation schemas.
 - `contracts/gates.py`: Tool gate definitions, Cypher parameterization schemas, and gate evaluation protocol.
+
+## Approved Change Notes
+
+| Date | Contract File | Proposed Change | Motivation | Approved By (A, B, C) | Status |
+| --- | --- | --- | --- | --- | --- |
+| None | None | No post-freeze contract modifications | Frozen per Section 0 Rule 2 | Team (A, B, C) | FROZEN |

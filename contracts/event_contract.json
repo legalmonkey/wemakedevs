@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TaintedEventContract",
+  "description": "SSE Event Contract between Part B (Agents) and Part C (API & UI). Zero domain words in event types.",
+  "type": "object",
+  "required": ["event_id", "event_type", "tenant_id", "timestamp", "entity_ids", "payload"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Unique identifier for this SSE event emission"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "event.received",
+        "evidence.suspect",
+        "taint.added",
+        "verdict.set",
+        "action.created",
+        "episode.closed",
+        "query.run",
+        "agent.status"
+      ]
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant graph identifier"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp"
+    },
+    "entity_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Graph node/edge IDs involved in this event"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Structured details specific to event_type without hardcoded domain values"
+    }
+  }
+}

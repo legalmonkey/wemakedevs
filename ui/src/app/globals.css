@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap');
+
+:root {
+  /* Paper & Ink Palette Tokens */
+  --bg-paper: #F7F4EC;
+  --bg-paper-sunken: #E6E2D6;
+  --bg-paper-elevated: #EFECE3;
+  --ink-primary: #181716;
+  --ink-secondary: #4D4A46;
+  --ink-muted: #7E7A74;
+  --ink-border: #D1CDBF;
+  --ink-border-subtle: #E2DED2;
+
+  /* Signal Inks */
+  --signal-taint: #C23B22;
+  --signal-reaffirm: #1B5E20;
+  --signal-suspect: #B26A00;
+  --signal-neutral: #5E5852;
+
+  /* Typography */
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  max-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-paper);
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hairline borders & No Shadows / No Blur */
+.hairline-border {
+  border: 1px solid var(--ink-border);
+}
+
+.hairline-bottom {
+  border-bottom: 1px solid var(--ink-border);
+}
+
+.hairline-right {
+  border-right: 1px solid var(--ink-border);
+}
+
+.hairline-left {
+  border-left: 1px solid var(--ink-border);
+}
+
+.hairline-top {
+  border-top: 1px solid var(--ink-border);
+}
+
+/* Typography Utility Classes */
+.font-display {
+  font-family: var(--font-serif);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+/* Forensic Rubber Stamps */
+.forensic-stamp {
+  display: inline-block;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  border-width: 2px;
+  border-style: solid;
+  transform: rotate(-1.5deg);
+  user-select: none;
+}
+
+.stamp-taint {
+  color: var(--signal-taint);
+  border-color: var(--signal-taint);
+}
+
+.stamp-reaffirm {
+  color: var(--signal-reaffirm);
+  border-color: var(--signal-reaffirm);
+}
+
+.stamp-suspect {
+  color: var(--signal-suspect);
+  border-color: var(--signal-suspect);
+}
+
+.stamp-neutral {
+  color: var(--signal-neutral);
+  border-color: var(--signal-neutral);
+}
+
+/* Dossier Layout (Asymmetric Grid: 60% Canvas, 40% Ledger & Audit) */
+.dossier-grid {
+  display: grid;
+  grid-template-columns: 6.2fr 3.8fr;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .dossier-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+}
+
+/* Custom Minimal Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-paper-sunken);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ink-border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-muted);
+}

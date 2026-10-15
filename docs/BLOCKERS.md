@@ -1,7 +1,12 @@
-# Blockers and Open Questions
+# Tainted — Blockers Log
 
-## Docker Desktop / Live FalkorDB Environment
-- **Status**: Recorded for Phase A0.
-- **Detail**: Docker Desktop daemon is not currently active on the host machine (`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`).
-- **Mitigation / Next Step**: `docker-compose.yml` has been defined. Prototype query runner and tests support both live FalkorDB (when Docker container is started via `docker compose up -d`) and verified offline openCypher dialect emulation. To run against a live FalkorDB container, the user or host environment should launch Docker Desktop.
+This file tracks questions, blocked tasks, and FalkorDB or library edge cases as mandated by Rule 9.
 
+## Tracked Issues & Blockers
+
+| Date | Part | Blocker / Issue | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| 2026-10-15 | A | Docker Desktop daemon not active on host machine | Mitigated | `docker-compose.yml` configured; Query API & tests support both live FalkorDB and dialect emulation |
+| 2026-10-15 | C | Initial Phase C0 setup initiated | Resolved | Contracts, tokens, and skeletons verified |
+| 2026-10-15 | C | Port 8000 in use by local host service | Resolved | Rebound Tainted FastAPI server to port 8001 |
+| 2026-10-15 | C | Phase C4 rehearsal & timed demo runs | Resolved | Zero blockers; all 3 fresh-seed runs and fallback recording verified |
