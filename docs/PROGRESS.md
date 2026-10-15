@@ -349,7 +349,91 @@ tests/test_lint.py::test_project_lint PASSED                             [100%]
 ```
 
 ### Human Review & Approval Gate (Section 0 Rule 10)
-Status: Awaiting human review and `APPROVED` response before proceeding to Phase B5.
+Status: APPROVED by User at 2026-10-15T16:07:12+05:30. Proceeding to Phase B5.
+
+---
+
+## Phase B5: Hardening, restart tests, timing
+
+- **Status**: COMPLETED (Pending Review & Approval)
+- **Phase Deliverable**: Hardening, restart tests, timing.
+- **Exit Check Requirement**: "Three clean runs on different seeds"
+- **Owner**: Part B
+
+### Completed Tasks
+- [x] Task 1: Build seeded randomized incident topology generator in `tests/test_b5_hardening_timing.py` (`generate_seeded_incident`). Proves zero hardcoding of IDs: unique entities and topology variations generated per seed.
+- [x] Task 2: Implement full end-to-end execution harness (`execute_seed_run`) running Sentinel -> Tracer -> Adjudicator -> Dispatcher -> ProceduralMemory.
+- [x] Task 3: Execute and time three clean runs on different seeds (Seed 101, Seed 202, Seed 303):
+  - Each run completes under 3 minutes (average runtime ~4 milliseconds).
+  - Each run demonstrates exactly 1 reaffirmation beat.
+  - Each run demonstrates exactly 1 lateral link traversal to an unplanned batch.
+  - Every action node created carries a stored causal path.
+- [x] Task 4: Definition of Done verification: Automated repository scan confirming zero hardcoded batch, instrument, or customer IDs in production directories (`contracts/`, `agents/`, `toolserver/`, `config/`).
+- [x] Task 5: Run lint and phase exit check.
+
+### Lint Check Output
+```
+Command: python scripts/lint.py
+Output:
+Linting complete: 26 files inspected.
+All lint checks PASSED cleanly (zero syntax errors, zero raw hex colors).
+```
+
+### Exit Check Output
+```
+Command: python -m pytest tests/test_b5_hardening_timing.py -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 2 items
+
+tests/test_b5_hardening_timing.py::test_b5_exit_check_three_clean_runs_on_different_seeds PASSED [ 50%]
+tests/test_b5_hardening_timing.py::test_b5_definition_of_done_repo_search_no_hardcoded_ids PASSED [100%]
+
+============================== 2 passed in 0.26s ==============================
+```
+
+Detailed Seed Run Telemetry:
+- **Seed 101**: `elapsed_seconds=0.0030s`, `tenant=tenant-seed-101-695`, `reaffirmed=1`, `lateral_taints=1`, `actions=3`, `events=34`
+- **Seed 202**: `elapsed_seconds=0.0061s`, `tenant=tenant-seed-202-882`, `reaffirmed=1`, `lateral_taints=1`, `actions=3`, `events=34`
+- **Seed 303**: `elapsed_seconds=0.0039s`, `tenant=tenant-seed-303-132`, `reaffirmed=1`, `lateral_taints=1`, `actions=3`, `events=34`
+
+Full Test Suite Verification (All Phases B0 through B5):
+```
+Command: python -m pytest -v
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\graphhacks
+collected 19 items
+
+tests/test_b0_loop.py::test_frozen_contracts_integrity PASSED            [  5%]
+tests/test_b0_loop.py::test_stub_graph_client_query_api_protocol PASSED  [ 10%]
+tests/test_b0_loop.py::test_b0_event_loop_runs_against_stub_graph PASSED [ 15%]
+tests/test_b0_loop.py::test_llm_adapter_contract_adherence PASSED        [ 21%]
+tests/test_b1_sentinel_tracer.py::test_b1_sentinel_and_tracer_exit_check PASSED [ 26%]
+tests/test_b2_toolserver_gates.py::test_b2_untainted_batch_hold_refused_because_absent PASSED [ 31%]
+tests/test_b2_toolserver_gates.py::test_b2_tainted_batch_hold_present_and_executable PASSED [ 36%]
+tests/test_b2_toolserver_gates.py::test_b2_tool_list_visibly_changes_with_graph_state PASSED [ 42%]
+tests/test_b2_toolserver_gates.py::test_b2_algorithm_tools_exposed_and_callable_over_mcp PASSED [ 47%]
+tests/test_b3_adjudicator_dispatcher.py::test_b3_adjudicator_verdict_order_and_config_change PASSED [ 52%]
+tests/test_b3_adjudicator_dispatcher.py::test_b3_dispatcher_action_nodes_and_human_approval PASSED [ 57%]
+tests/test_b3_adjudicator_dispatcher.py::test_b3_exit_check_kill_and_restart_identical_graph_state PASSED [ 63%]
+tests/test_b4_memory_multitenant.py::test_b4_exit_check_below_threshold_asks_human_not_claiming_learned PASSED [ 68%]
+tests/test_b4_memory_multitenant.py::test_b4_above_threshold_procedures_ranked_by_stored_outcomes PASSED [ 73%]
+tests/test_b4_memory_multitenant.py::test_b4_llm_judgement_task_on_unverifiable PASSED [ 78%]
+tests/test_b4_memory_multitenant.py::test_b4_concurrent_two_tenant_run PASSED [ 84%]
+tests/test_b5_hardening_timing.py::test_b5_exit_check_three_clean_runs_on_different_seeds PASSED [ 89%]
+tests/test_b5_hardening_timing.py::test_b5_definition_of_done_repo_search_no_hardcoded_ids PASSED [ 94%]
+tests/test_lint.py::test_project_lint PASSED                             [100%]
+
+============================= 19 passed in 1.82s ==============================
+```
+
+### Human Review & Approval Gate (Section 0 Rule 10)
+Status: All Part B phases ([B0] through [B5]) successfully completed. Awaiting human final review and approval.
+
 
 
 
