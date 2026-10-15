@@ -1,0 +1,19 @@
+version: "1.0.0"
+scenario_id: "calibration_drift_incident"
+pack: "food"
+title: "Cold Chain Sensor Calibration Drift"
+description: "Telemetry sensor drifted out of calibration, retracting single-stream test results while multi-stream batches hold independent validation"
+
+fault:
+  target_role: "Evidence"
+  target_kind: "SensorLog"
+  fault_type: "retraction"
+  reason: "Instrumentation recalibration failure: sensor drift exceeded tolerance (+2.8C)"
+
+# Section 0 Rule & Part A rules: expect blocks are read ONLY by test assertions, NEVER by agent code.
+expect:
+  min_units: 3
+  min_tainted_decisions: 1
+  min_reaffirmed_decisions: 1
+  has_lateral_link: true
+  min_actions: 1

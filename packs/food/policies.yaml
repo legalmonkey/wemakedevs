@@ -1,0 +1,16 @@
+version: "1.0.0"
+pack_name: "food"
+
+adjudication_rules:
+  min_independent_evidence: 2
+  required_evidence_kinds:
+    - "LabTest"
+    - "SensorLog"
+  verdict_order:
+    - "reaffirm"
+    - "unverifiable"
+    - "taint"
+
+gating_rules:
+  hold_requires_taint: true
+  notice_requires_shipment_exposure: true

@@ -1,0 +1,38 @@
+version: "1.0.0"
+pack_name: "food"
+source: "FDA Food Safety Modernization Act (FSMA) & openFDA enforcement terminology"
+
+hazards:
+  - "listeria_monocytogenes"
+  - "salmonella_enterica"
+  - "escherichia_coli_o157"
+  - "clostridium_botulinum"
+  - "undeclared_allergen_peanut"
+  - "temperature_abuse_excursion"
+  - "instrument_calibration_drift"
+
+assay_methods:
+  - "rt_qpcr_pathogen_screen"
+  - "elisa_antigen_immunoassay"
+  - "calibrated_pt100_telemetry"
+  - "atp_bioluminescence_hygiene"
+  - "mass_spectrometry_lcms"
+
+product_categories:
+  - "pasteurized_dairy_beverage"
+  - "ready_to_eat_salads"
+  - "cold_pressed_juice"
+  - "infant_formula_powder"
+  - "fermented_probiotic_yogurt"
+
+units:
+  - "carton"
+  - "pallet"
+  - "tote_bin"
+  - "batch_drum"
+
+actions:
+  - "quarantine_hold"
+  - "customer_advisory_notice"
+  - "logistics_recall_interception"
+  - "regulatory_report_filing"

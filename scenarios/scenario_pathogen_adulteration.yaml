@@ -1,0 +1,17 @@
+version: "1.0.0"
+scenario_id: "pathogen_adulteration_incident"
+pack: "food"
+title: "Supplier Raw Lot Microbiological Contamination Alert"
+description: "Supplier issues urgent alert for microbial contamination in shared raw material lot"
+
+fault:
+  target_role: "Evidence"
+  target_kind: "SupplierLot"
+  fault_type: "supplier_alert"
+  reason: "Upstream supplier reported presumptive positive for Listeria monocytogenes in lot"
+
+expect:
+  min_units: 3
+  min_tainted_decisions: 1
+  has_lateral_link: true
+  min_actions: 1

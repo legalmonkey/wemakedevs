@@ -1,0 +1,133 @@
+version: "1.0.0"
+pack_name: "food"
+description: "Food safety, processing, and cold-chain supply tracing ontology"
+
+nodes:
+  - kind: "SupplierLot"
+    role: "Evidence"
+    description: "Raw ingredient lot provided by certified supplier"
+    properties:
+      lot_code: "string"
+      origin_facility: "string"
+
+  - kind: "LabTest"
+    role: "Evidence"
+    description: "Pathogen or microbiological assay result"
+    properties:
+      assay_method: "string"
+      lab_id: "string"
+      result_value: "string"
+
+  - kind: "SensorLog"
+    role: "Evidence"
+    description: "Cold-chain or pasteurization telemetry record"
+    properties:
+      sensor_type: "string"
+      calibrated_at: "string"
+
+  - kind: "QualityDecision"
+    role: "Decision"
+    description: "Batch release or quarantine adjudication"
+    properties:
+      verdict: "string"
+      adjudicated_at: "string"
+
+  - kind: "BatchLot"
+    role: "Unit"
+    description: "Finished packaged food product batch"
+    properties:
+      sku: "string"
+      is_tainted: "boolean"
+      status: "string"
+
+  - kind: "DispatchShipment"
+    role: "Shipment"
+    description: "Logistics shipping container or pallet consignment"
+    properties:
+      tracking_code: "string"
+      carrier: "string"
+
+  - kind: "CustomerAccount"
+    role: "Recipient"
+    description: "Commercial distributor, grocery retailer, or institutional buyer"
+    properties:
+      customer_tier: "string"
+      region: "string"
+
+  - kind: "AlertEvent"
+    role: "Event"
+    description: "Notification of calibration drift, supplier alert, or lab retraction"
+    properties:
+      processed: "boolean"
+      target_evidence_id: "string"
+      reason: "string"
+
+  - kind: "QuarantineAction"
+    role: "Action"
+    description: "Warehouse hold or customer exposure advisory"
+    properties:
+      action_type: "string"
+      requires_approval: "boolean"
+      approved: "boolean"
+      causal_path: "array"
+
+  - kind: "ContainmentEpisode"
+    role: "Episode"
+    description: "Recorded incident lifecycle for procedural outcome tracking"
+    properties:
+      procedure_id: "string"
+      outcome: "string"
+      duration_seconds: "number"
+
+  - kind: "ContainmentProcedure"
+    role: "Procedure"
+    description: "Standard operating procedure for incident containment"
+    properties:
+      procedure_name: "string"
+      priority: "integer"
+
+edges:
+  - kind: "SUPPORTS"
+    role: "support"
+    source_role: "Evidence"
+    target_role: "Decision"
+    description: "Evidence providing factual support for a release decision"
+
+  - kind: "DERIVES_FROM"
+    role: "derives-from"
+    source_role: "Unit"
+    target_role: "Evidence"
+    description: "Finished batch derived from raw supplier material lot"
+
+  - kind: "SHIPS_IN"
+    role: "ships-in"
+    source_role: "Unit"
+    target_role: "Shipment"
+    description: "Unit packaged inside a distribution shipment"
+
+  - kind: "DELIVERED_TO"
+    role: "delivered-to"
+    source_role: "Shipment"
+    target_role: "Recipient"
+    description: "Shipment delivered to customer recipient"
+
+  - kind: "SHARED_LOT"
+    role: "lateral-link"
+    source_role: "Unit"
+    target_role: "Unit"
+    description: "Lateral association between batches sharing a common sub-component or process lot"
+
+  - kind: "TAINTS"
+    role: "TAINTS"
+    source_role: "Evidence"
+    target_role: "Decision"
+    description: "Causal propagation edge carrying hop count and via_path"
+    properties:
+      hops: "integer"
+      via_path: "array"
+
+  - kind: "EPISODE_OUTCOME"
+    role: "episode-outcome"
+    source_role: "Episode"
+    target_role: "Procedure"
+    description: "Outcome record linking containment episode to procedure executed"
