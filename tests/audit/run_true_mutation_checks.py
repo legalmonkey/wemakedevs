@@ -40,6 +40,8 @@ def patch_file(file_rel_path, old_text, new_text):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     print("=" * 105)
     print("DEMAND 4: TRUE PRODUCTION MUTATION TESTING (PATCH -> RUN TEST -> PROVE FAILURE -> RESTORE -> PROVE PASS)")
     print("=" * 105)
@@ -69,7 +71,7 @@ def main():
             "file": "engine/generator.py",
             "target": 'add_edge(shipped_batch, shipment_id, "SHIPS_IN", EdgeRole.SHIPS_IN)',
             "patch": 'add_edge(shipped_batch, shipment_id, "ships-in", EdgeRole.SHIPS_IN)',
-            "test_cmd": [sys.executable, "-m", "pytest", "tests/audit/test_demand3_gates_consistent.py", "-v", "--no-cov"],
+            "test_cmd": [sys.executable, "-m", "pytest", "tests/audit/test_demand3_gates_consistent.py", "-k", "test_generator_relationship_types_unlock_draft_notice_gate", "-v", "--no-cov"],
             "expected_fail_str": "AssertionError",
         },
         {
@@ -85,8 +87,8 @@ def main():
             "id": "MUT-5",
             "name": "Bypass Gate Race Invariant in hold_unit Cypher Query",
             "file": "config/gates.yaml",
-            "target": "WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' AND coalesce(u.verdict, '') <> 'reaffirmed'",
-            "patch": "WHERE u.is_tainted = true",
+            "target": 'cypher_query: "MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true AND coalesce(u.status, \'\') <> \'reaffirmed\' AND coalesce(u.verdict, \'\') <> \'reaffirmed\' RETURN count(u) > 0 AS allowed"',
+            "patch": 'cypher_query: "MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true RETURN count(u) > 0 AS allowed"',
             "test_cmd": [sys.executable, "-m", "pytest", "tests/audit/test_demand5_race_and_notice_gate.py", "-k", "test_race_reaffirmed_unit_never_held_or_noticed_under_any_interleaving", "-v", "--no-cov"],
             "expected_fail_str": "AssertionError",
         },
@@ -94,8 +96,8 @@ def main():
             "id": "MUT-6",
             "name": "Bypass Recipient Path Verification in draft_notice Gate",
             "file": "config/gates.yaml",
-            "target": "MATCH (u:Unit {id: $entity_id})-[:SHIPS_IN]->(s:Shipment)-[:DELIVERED_TO]->(r:Recipient {id: $recipient_id})",
-            "patch": "MATCH (u:Unit {id: $entity_id})-[:SHIPS_IN]->(s:Shipment)",
+            "target": 'cypher_query: "MATCH (u:Unit {id: $entity_id})-[:SHIPS_IN]->(s:Shipment)-[:DELIVERED_TO]->(r:Recipient) WHERE u.is_tainted = true AND coalesce(u.status, \'\') <> \'reaffirmed\' AND coalesce(u.verdict, \'\') <> \'reaffirmed\' RETURN count(r) > 0 AS allowed"',
+            "patch": 'cypher_query: "MATCH (u:Unit {id: $entity_id})-[:SHIPS_IN]->(s:Shipment) WHERE u.is_tainted = true AND coalesce(u.status, \'\') <> \'reaffirmed\' AND coalesce(u.verdict, \'\') <> \'reaffirmed\' RETURN count(s) > 0 AS allowed"',
             "test_cmd": [sys.executable, "-m", "pytest", "tests/audit/test_demand5_race_and_notice_gate.py", "-k", "test_draft_notice_verifies_delivered_to_path_for_customer", "-v", "--no-cov"],
             "expected_fail_str": "AssertionError",
         },

@@ -436,13 +436,8 @@ class FalkorDBGraphClient(QueryAPIProtocol):
             )
 
         cypher = gate_info["cypher_query"]
-        if tool == "draft_notice":
-            if params.get("recipient_id"):
-                cypher = "MATCH (u:Unit {id: $entity_id})-[:SHIPS_IN]->(s:Shipment)-[:DELIVERED_TO]->(r:Recipient {id: $recipient_id}) WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' AND coalesce(u.verdict, '') <> 'reaffirmed' RETURN count(r) > 0 AS allowed"
-            else:
-                cypher = "MATCH (u:Unit {id: $entity_id})-[:SHIPS_IN]->(s:Shipment)-[:DELIVERED_TO]->(r:Recipient) WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' AND coalesce(u.verdict, '') <> 'reaffirmed' RETURN count(r) > 0 AS allowed"
-        elif tool == "hold_unit":
-            cypher = "MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' AND coalesce(u.verdict, '') <> 'reaffirmed' RETURN count(u) > 0 AS allowed"
+        if params.get("recipient_id") and "(r:Recipient)" in cypher:
+            cypher = cypher.replace("(r:Recipient)", "(r:Recipient {id: $recipient_id})")
 
         cypher_exec = re.sub(r':([a-zA-Z0-9_]+-[a-zA-Z0-9_-]+)', r':`\1`', cypher)
 

@@ -11,6 +11,7 @@ Verifies:
 import pytest
 from contracts.ontology import NodeRole, EdgeRole
 from engine.falkordb_client import FalkorDBGraphClient
+from engine.generator import FoodGraphGenerator
 from toolserver.gate_evaluator import GateEvaluator
 
 
@@ -86,3 +87,32 @@ def test_consistent_relationship_types_and_draft_notice_gate_on_falkordb():
     assert res_clean.allowed is False, (
         f"Expected draft_notice to be REFUSED for untainted+shipped batch, got: {res_clean}"
     )
+
+
+def test_generator_relationship_types_unlock_draft_notice_gate():
+    """Verify that FoodGraphGenerator generates :SHIPS_IN relationships that match gates.yaml Cypher."""
+    client = FalkorDBGraphClient(tenant_id="test-gen-draft-notice", clean=True)
+    generator = FoodGraphGenerator(seed=1234, num_units=30)
+    gen_data = generator.generate(graph_client=client)
+    evaluator = GateEvaluator(graph_client=client)
+
+    # In generated graph, pick the first batch that is connected to a shipment
+    shipped_batch = None
+    recipient_id = gen_data["recipients"][0] if gen_data["recipients"] else None
+    for batch_id in gen_data["batches"]:
+        out_edges = client.get_outgoing_edges(batch_id)
+        if any(e.target_id in gen_data["shipments"] for e in out_edges):
+            shipped_batch = batch_id
+            break
+
+    assert shipped_batch is not None, "Generator must produce at least one batch with an outbound shipment"
+
+    # Mark the shipped batch tainted in FalkorDB
+    client.update_node(shipped_batch, {"is_tainted": True, "status": "tainted"})
+
+    res = evaluator.evaluate("draft_notice", {"entity_id": shipped_batch, "recipient_id": recipient_id})
+    print(f"\nGenerator Gate Check: batch={shipped_batch}, recipient={recipient_id}, allowed={res.allowed}")
+    assert res.allowed is True, (
+        f"draft_notice gate failed to match generator relationships! Allowed: {res.allowed}, Reason: {res.reason}"
+    )
+

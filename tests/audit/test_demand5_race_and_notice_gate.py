@@ -89,6 +89,11 @@ def test_race_reaffirmed_unit_never_held_or_noticed_under_any_interleaving():
         assert len(notice_actions) == 0, f"Interleaving {run_idx} violated invariant: Draft notice action created for reaffirmed unit!"
         assert unit_status in ("released", "reaffirmed"), f"Interleaving {run_idx} corrupted unit status: {unit_status}"
 
+        # Demand 5 Gate Invariant check: Cypher gate must refuse hold_unit on reaffirmed unit
+        evaluator = GateEvaluator(graph_client=client)
+        gate_res = evaluator.evaluate("hold_unit", {"entity_id": batch_id})
+        assert gate_res.allowed is False, f"Gate invariant failed: hold_unit permitted for reaffirmed unit {batch_id}!"
+
     print(f"PASSED: 30/30 randomized agent interleavings verified. Reaffirmed unit was NEVER held or noticed.")
 
 
