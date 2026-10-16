@@ -55,14 +55,15 @@ def test_real_incident_writes_episode_with_outcome_from_human_approval():
     print(f"   Notes:         '{notes}'")
 
     assert approval_res["status"] == "approved"
-    assert outcome == "success", f"Outcome for approved action must be 'success', got '{outcome}'"
+    assert outcome == "approved", f"Outcome for approved action must be 'approved', got '{outcome}'"
 
-    # 4. Verify episode is in g_persistent_memory on FalkorDB
-    persistent_client = FalkorDBGraphClient(tenant_id="persistent_memory", clean=False)
+    # 4. Verify episode is in memory_{tenant_id} on FalkorDB (Demand 3)
+    tenant = svc.current_tenant_id
+    persistent_client = FalkorDBGraphClient(tenant_id=f"memory_{tenant}", clean=False)
     episode_node = persistent_client.get_node(episode_id)
-    assert episode_node is not None, f"Episode '{episode_id}' was not found in persistent memory graph!"
-    assert episode_node.properties.get("outcome") == "success", (
-        f"Stored outcome mismatch: expected 'success', got {episode_node.properties.get('outcome')}"
+    assert episode_node is not None, f"Episode '{episode_id}' was not found in per-tenant persistent memory graph!"
+    assert episode_node.properties.get("outcome") == "approved", (
+        f"Stored outcome mismatch: expected 'approved', got {episode_node.properties.get('outcome')}"
     )
 
     # 5. TEST REJECTION OUTCOME
@@ -82,11 +83,11 @@ def test_real_incident_writes_episode_with_outcome_from_human_approval():
     print(f"   Outcome:       {ep_reject_outcome} (Derived from human rejection!)")
 
     assert rejection_res["status"] == "rejected"
-    assert ep_reject_outcome == "failure"
+    assert ep_reject_outcome == "rejected"
 
     reject_node = persistent_client.get_node(ep_reject_id)
     assert reject_node is not None
-    assert reject_node.properties.get("outcome") == "failure"
+    assert reject_node.properties.get("outcome") == "rejected"
 
     # 6. Procedural memory ranking incorporates both human approval outcomes
     mem = ProceduralMemory(tenant_id="persistent_memory")

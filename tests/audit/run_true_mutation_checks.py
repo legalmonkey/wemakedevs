@@ -51,7 +51,7 @@ def main():
             "file": "engine/generator.py",
             "target": 'return f"{kind.lower()}_{seed}_{digest}"',
             "patch": 'return f"{kind.lower()}_{seed}_reaff_{digest}"',
-            "test_cmd": [sys.executable, "-m", "pytest", "tests/audit/test_adversarial_audit.py", "-k", "test_a4_variety_distinct_signatures", "-v", "--no-cov"],
+            "test_cmd": [sys.executable, "-m", "pytest", "tests/audit/test_demand1_generator.py", "-k", "test_generator_no_outcome_encoding_in_ids_or_labels", "-v", "--no-cov"],
             "expected_fail_str": "AssertionError",
         },
         {
