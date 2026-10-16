@@ -18,7 +18,7 @@ import pytest
 
 from contracts.ontology import EdgeRole, NodeRole
 from contracts.events import EventEnvelope, EventType
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
 from agents.adjudicator import AdjudicatorAgent
@@ -27,8 +27,8 @@ from agents.event_loop import EventLoop
 from agents.memory import ProceduralMemory
 
 
-def generate_seeded_incident(seed: int) -> StubGraphClient:
-    """Generates a unique randomized incident graph using a fresh seed.
+def generate_seeded_incident(seed: int) -> FalkorDBGraphClient:
+    """Generates a unique randomized incident graph using a fresh seed on FalkorDB.
 
     Ensures zero hardcoding: all IDs and topology variations are pseudo-randomly generated.
     Topology guarantees:
@@ -39,7 +39,7 @@ def generate_seeded_incident(seed: int) -> StubGraphClient:
     """
     rng = random.Random(seed)
     tenant_id = f"tenant-seed-{seed}-{rng.randint(100, 999)}"
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id, clean=True)
 
     # Generate random ID tokens for this seed
     tok_ev1 = f"ev-{rng.randint(10000, 99999)}"

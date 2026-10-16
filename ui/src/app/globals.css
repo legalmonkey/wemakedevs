@@ -7,14 +7,14 @@
   --bg-paper-elevated: #EFECE3;
   --ink-primary: #181716;
   --ink-secondary: #4D4A46;
-  --ink-muted: #7E7A74;
+  --ink-muted: #635F5A;
   --ink-border: #D1CDBF;
   --ink-border-subtle: #E2DED2;
 
   /* Signal Inks */
   --signal-taint: #C23B22;
   --signal-reaffirm: #1B5E20;
-  --signal-suspect: #B26A00;
+  --signal-suspect: #8F5400;
   --signal-neutral: #5E5852;
 
   /* Typography */

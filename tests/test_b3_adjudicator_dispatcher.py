@@ -16,7 +16,7 @@ import copy
 import pytest
 from contracts.ontology import EdgeRole, NodeRole
 from contracts.events import EventEnvelope, EventType
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
 from agents.adjudicator import AdjudicatorAgent
@@ -33,7 +33,7 @@ def build_scenario_graph(tenant_id: str = "tenant-b3"):
         * dec-unverifiable: has 1 unverifiable evidence
     - Units, Shipments, Recipients
     """
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id, clean=True)
 
     # Suspect evidence from drift alert
     client.add_node("ev-suspect-1", "Reading", NodeRole.EVIDENCE, {"valid": True, "group_id": "grp-1"})
@@ -84,7 +84,7 @@ def build_scenario_graph(tenant_id: str = "tenant-b3"):
     return client
 
 
-def serialize_graph_state(client: StubGraphClient):
+def serialize_graph_state(client: FalkorDBGraphClient):
     """Generates a canonical state dictionary representing all nodes, properties, and edges."""
     nodes_state = {
         nid: {"kind": n.kind, "role": n.role.value, "properties": copy.deepcopy(n.properties)}

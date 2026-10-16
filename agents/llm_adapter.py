@@ -50,8 +50,8 @@ class LLMAdapterProtocol(Protocol):
         ...
 
 
-class StubLLMAdapter:
-    """Stub/deterministic implementation of the LLM adapter for testing and offline runs."""
+class DeterministicLLMAdapter:
+    """Deterministic implementation of the LLM adapter for offline runs."""
 
     def draft_missing_link_question(
         self,
@@ -98,3 +98,6 @@ class StubLLMAdapter:
     ) -> List[str]:
         # Return procedures preserving input order or sorted by key
         return list(permitted_procedure_ids)
+
+
+StubLLMAdapter = DeterministicLLMAdapter

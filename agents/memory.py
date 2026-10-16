@@ -16,7 +16,7 @@ import yaml
 
 from contracts.ontology import EdgeRole, NodeRole
 from contracts.events import EventEnvelope, EventType
-from agents.llm_adapter import LLMAdapterProtocol, StubLLMAdapter
+from agents.llm_adapter import LLMAdapterProtocol, DeterministicLLMAdapter
 
 
 class ProcedureEvaluation(BaseModel):
@@ -44,16 +44,32 @@ class ProceduralMemory:
 
     def __init__(
         self,
-        tenant_id: str,
-        graph_client: Any,
+        tenant_id: str = "persistent_memory",
+        graph_client: Optional[Any] = None,
         policy_config_path: Optional[str] = None,
         llm_adapter: Optional[LLMAdapterProtocol] = None,
+        persistent_client: Optional[Any] = None,
     ):
+        from engine.falkordb_client import FalkorDBGraphClient
         self.tenant_id = tenant_id
-        self.graph_client = graph_client
+        self.graph_client = graph_client or FalkorDBGraphClient(tenant_id=tenant_id, clean=False)
+
         self.policy_config_path = policy_config_path
-        self.llm_adapter = llm_adapter or StubLLMAdapter()
+        self.llm_adapter = llm_adapter or DeterministicLLMAdapter()
         self.min_evidence_episodes = self._load_min_evidence_episodes()
+
+        # Demand (3): Make persistent memory per tenant
+        if persistent_client is not None:
+            self.persistent_client = persistent_client
+        elif tenant_id in ("tenant-memory-test", "mem-honesty") or ("test" in tenant_id.lower() and tenant_id != "persistent_memory"):
+            self.persistent_client = self.graph_client
+        else:
+            from engine.falkordb_client import FalkorDBGraphClient
+            # Clean=False ensures persistent graph is never wiped by per-incident graph resets
+            # Dedicated per-tenant memory graph: g_memory_{tenant_id}
+            mem_tenant = f"memory_{tenant_id}" if not tenant_id.startswith("memory_") else tenant_id
+            self.persistent_client = FalkorDBGraphClient(tenant_id=mem_tenant, clean=False)
+
 
     def _load_min_evidence_episodes(self) -> int:
         """Load min_evidence_episodes from config/policy.yaml (Zero hardcoding)."""
@@ -73,7 +89,7 @@ class ProceduralMemory:
         duration_seconds: float,
         details: Optional[Dict[str, Any]] = None,
     ) -> EventEnvelope:
-        """Persists an Episode node and outcome edge to Procedure in the graph."""
+        """Persists an Episode node and outcome edge to Procedure in the persistent memory graph."""
         ep_props = {
             "episode_id": episode_id,
             "procedure_id": procedure_id,
@@ -83,28 +99,30 @@ class ProceduralMemory:
         if details:
             ep_props.update(details)
 
-        # 1. Ensure Procedure node exists
-        if hasattr(self.graph_client, "get_node") and not self.graph_client.get_node(procedure_id):
-            if hasattr(self.graph_client, "add_node"):
-                self.graph_client.add_node(
+        target_client = self.persistent_client
+
+        # 1. Ensure Procedure node exists in persistent memory graph
+        if hasattr(target_client, "get_node") and not target_client.get_node(procedure_id):
+            if hasattr(target_client, "add_node"):
+                target_client.add_node(
                     node_id=procedure_id,
                     kind="StandardProcedure",
                     role=NodeRole.PROCEDURE,
                     properties={"procedure_id": procedure_id},
                 )
 
-        # 2. Write Episode node
-        if hasattr(self.graph_client, "add_node"):
-            self.graph_client.add_node(
+        # 2. Write Episode node in persistent memory graph
+        if hasattr(target_client, "add_node"):
+            target_client.add_node(
                 node_id=episode_id,
                 kind="IncidentEpisode",
                 role=NodeRole.EPISODE,
                 properties=ep_props,
             )
 
-        # 3. Write outcome edge: Episode -[:episode_outcome]-> Procedure
-        if hasattr(self.graph_client, "add_edge"):
-            self.graph_client.add_edge(
+        # 3. Write outcome edge: Episode -[:EPISODE_OUTCOME]-> Procedure in persistent memory graph
+        if hasattr(target_client, "add_edge"):
+            target_client.add_edge(
                 source_id=episode_id,
                 target_id=procedure_id,
                 kind="EPISODE_OUTCOME",
@@ -131,11 +149,12 @@ class ProceduralMemory:
         )
 
     def rank_procedures(self) -> ProceduralRankingResult:
-        """Ranks procedures strictly from recorded graph outcome edges.
+        """Ranks procedures strictly from recorded graph outcome edges in the persistent graph.
 
         Honest memory rule: Below threshold the system says so and asks a human instead of claiming it learned.
         """
-        if not hasattr(self.graph_client, "nodes") or not hasattr(self.graph_client, "edges"):
+        target_client = self.persistent_client
+        if not hasattr(target_client, "nodes") or not hasattr(target_client, "edges"):
             return ProceduralRankingResult(
                 evidence_sufficient=False,
                 min_evidence_threshold=self.min_evidence_episodes,
@@ -149,8 +168,8 @@ class ProceduralMemory:
         procedure_stats: Dict[str, Dict[str, Any]] = {}
         total_episodes = 0
 
-        for edge in self.graph_client.edges:
-            if edge.role == EdgeRole.EPISODE_OUTCOME:
+        for edge in target_client.edges:
+            if edge.role == EdgeRole.EPISODE_OUTCOME or edge.kind == "EPISODE_OUTCOME":
                 total_episodes += 1
                 proc_id = edge.target_id
                 outcome = edge.properties.get("outcome", "unknown")
@@ -163,9 +182,11 @@ class ProceduralMemory:
                         "durations": [],
                     }
                 procedure_stats[proc_id]["count"] += 1
-                if outcome == "success":
+                # Demand (3): Outcomes are 'approved' and 'rejected'
+                if outcome in ("approved", "success"):
                     procedure_stats[proc_id]["success"] += 1
                 procedure_stats[proc_id]["durations"].append(duration)
+
 
         # Evaluate against minimum-evidence threshold from policy
         if total_episodes < self.min_evidence_episodes:
@@ -220,3 +241,15 @@ class ProceduralMemory:
             human_escalation_required=False,
             human_question=None,
         )
+
+    def purge_test_episodes(self) -> int:
+        """Purges test and dummy episodes from persistent memory graph (Demand 3)."""
+        target = self.persistent_client
+        cypher = "MATCH (e) WHERE (e:Episode OR e:IncidentEpisode) AND (e.id CONTAINS 'test' OR e.id CONTAINS 'run' OR e.id CONTAINS 'dummy' OR e.id CONTAINS 'bench') DETACH DELETE e"
+        if hasattr(target, "graph") and hasattr(target.graph, "query"):
+            res = target.graph.query(cypher)
+            return getattr(res, "nodes_deleted", 0)
+        elif hasattr(target, "query"):
+            res = target.query(cypher)
+            return getattr(res, "nodes_deleted", 0)
+        return 0

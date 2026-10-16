@@ -12,7 +12,7 @@ Verifies:
 from pathlib import Path
 import pytest
 from contracts.ontology import NodeRole, EdgeRole
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.event_loop import EventLoop
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
@@ -69,7 +69,7 @@ def test_a1_exit_check_scenario_expectations_hold(root_dir):
 
     # 1. Generate base graph using generator
     tenant_id = "tenant-scenario-test-777"
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id, clean=True)
     generator = FoodGraphGenerator(seed=777)
     generator.generate(graph_client=client)
 

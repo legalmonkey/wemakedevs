@@ -12,13 +12,13 @@ Verifies:
 import pytest
 from contracts.ontology import EdgeRole, NodeRole
 from contracts.events import EventEnvelope, EventType
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
 from agents.event_loop import EventLoop
 
 
-def build_generated_incident_topology(client: StubGraphClient):
+def build_generated_incident_topology(client: FalkorDBGraphClient):
     """Constructs a multi-hop incident topology with lateral link:
 
     [Event: evt-drift-1]
@@ -112,7 +112,7 @@ def build_generated_incident_topology(client: StubGraphClient):
 def test_b1_sentinel_and_tracer_exit_check():
     """Verify Phase B1 Exit Check: Trace writes hops and via-path for a generated incident."""
     tenant_id = "tenant-food-demo"
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id, clean=True)
     build_generated_incident_topology(client)
 
     sentinel = SentinelAgent(tenant_id=tenant_id, graph_client=client)

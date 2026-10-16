@@ -14,7 +14,7 @@ Verifies:
 from pathlib import Path
 import pytest
 from contracts.ontology import NodeRole, EdgeRole
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from toolserver.gate_evaluator import GateEvaluator
 from engine.config_loader import ConfigLoader
 from engine.generator import FoodGraphGenerator
@@ -59,7 +59,7 @@ def test_a2_exit_check_query_api_on_food_pack(root_dir, loader):
     food_onto = loader.load_ontology(root_dir / "packs" / "food" / "ontology.yaml")
     query_builder = QueryBuilder(food_onto)
 
-    client = StubGraphClient(tenant_id="tenant-food-a2")
+    client = FalkorDBGraphClient(tenant_id="tenant-food-a2")
     gen = FoodGraphGenerator(seed=888)
     gen_data = gen.generate(graph_client=client)
 
@@ -139,7 +139,7 @@ def test_a2_exit_check_query_api_on_pharma_pack(root_dir, loader):
     pharma_onto = loader.load_ontology(root_dir / "packs" / "pharma" / "ontology.yaml")
     query_builder = QueryBuilder(pharma_onto)
 
-    client = StubGraphClient(tenant_id="tenant-pharma-test")
+    client = FalkorDBGraphClient(tenant_id="tenant-pharma-test")
     # Build a tiny pharma graph conforming to pharma ontology
     api_lot = "api_lot_active_901"
     vial_batch_1 = "vial_batch_sterile_101"

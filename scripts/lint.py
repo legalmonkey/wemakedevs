@@ -14,24 +14,29 @@ from pathlib import Path
 HEX_COLOR_PATTERN = re.compile(r"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b")
 # Forbids hardcoded domain IDs in production code (Rule 3)
 ID_LITERAL_PATTERN = re.compile(r"\b(?:batch|lot|sensor|cust|instrument|tenant)-\d+\b", re.IGNORECASE)
-PRODUCTION_DIRS = ["contracts", "agents", "toolserver", "engine"]
+PRODUCTION_DIRS = ["contracts", "agents", "toolserver", "engine", "api", "ui"]
 
 
 def lint_file(file_path: Path) -> list[str]:
     errors = []
+    # Ignore build artifacts and node_modules
+    if any(p in file_path.parts for p in ["node_modules", ".next", ".git"]):
+        return errors
+
     content = file_path.read_text(encoding="utf-8")
 
-    # 1. Syntax check
-    try:
-        ast.parse(content, filename=str(file_path))
-    except SyntaxError as e:
-        errors.append(f"Syntax error in {file_path}:{e.lineno}: {e.msg}")
-        return errors
+    # 1. Syntax check for Python files
+    if file_path.suffix == ".py":
+        try:
+            ast.parse(content, filename=str(file_path))
+        except SyntaxError as e:
+            errors.append(f"Syntax error in {file_path}:{e.lineno}: {e.msg}")
+            return errors
 
     # 2. Check for raw hex colors and id-shaped literals in production code
     for line_no, line in enumerate(content.splitlines(), start=1):
         # Ignore comments if any
-        code_part = line.split("#")[0] if "#" in line and not line.strip().startswith("#") else line
+        code_part = line.split("//")[0] if "//" in line else (line.split("#")[0] if "#" in line and not line.strip().startswith("#") else line)
         
         # Hex color check
         matches_hex = HEX_COLOR_PATTERN.findall(code_part)
@@ -61,10 +66,13 @@ def run_lint() -> int:
         target_path = root_dir / pdir
         if not target_path.exists():
             continue
-        for py_file in target_path.rglob("*.py"):
-            files_checked += 1
-            errs = lint_file(py_file)
-            all_errors.extend(errs)
+        for ext in ("*.py", "*.ts", "*.tsx"):
+            for code_file in target_path.rglob(ext):
+                if any(p in code_file.parts for p in ["node_modules", ".next", ".git"]):
+                    continue
+                files_checked += 1
+                errs = lint_file(code_file)
+                all_errors.extend(errs)
 
     # Also check tests syntax
     tests_path = root_dir / "tests"

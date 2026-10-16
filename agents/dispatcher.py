@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from agents.base import BaseAgent, WorkItem
 from contracts.ontology import EdgeRole, NodeRole
 from contracts.events import EventEnvelope, EventType
-from agents.llm_adapter import LLMAdapterProtocol, StubLLMAdapter
+from agents.llm_adapter import LLMAdapterProtocol, DeterministicLLMAdapter
 
 
 class DispatcherAgent(BaseAgent):
@@ -30,7 +30,7 @@ class DispatcherAgent(BaseAgent):
             name=name,
             tenant_id=tenant_id,
             graph_client=graph_client,
-            llm_adapter=llm_adapter or StubLLMAdapter(),
+            llm_adapter=llm_adapter or DeterministicLLMAdapter(),
         )
 
     def poll_work(self) -> List[WorkItem]:
@@ -62,7 +62,17 @@ class DispatcherAgent(BaseAgent):
         verdict = decision_props.get("verdict", "tainted")
 
         # Causal path of decision
-        causal_path = decision_props.get("taint_via_path", [decision_id])
+        causal_path = decision_props.get("taint_via_path")
+        if not causal_path:
+            incoming_ev = []
+            if hasattr(self.graph_client, "get_incoming_edges"):
+                for e in self.graph_client.get_incoming_edges(decision_id):
+                    if e.role == EdgeRole.SUPPORT:
+                        incoming_ev.append(e.source_id)
+            if incoming_ev:
+                causal_path = [incoming_ev[0], decision_id]
+            else:
+                causal_path = [decision_id]
 
         # Identify governed units (outgoing/incoming edges), deduplicated
         governed_units: List[str] = []
@@ -87,7 +97,17 @@ class DispatcherAgent(BaseAgent):
                 unit_path = list(causal_path) + [target_id]
 
 
+            target_node = self.graph_client.get_node(target_id)
+            target_status = target_node.properties.get("status") if target_node else None
+            target_verdict = target_node.properties.get("verdict") if target_node else None
+
+            # DEMAND 5 INVARIANT: A reaffirmed unit can NEVER be held or noticed under any agent interleaving
+            is_target_reaffirmed = (target_status == "reaffirmed" or target_verdict == "reaffirmed")
+
             if verdict == "reaffirmed":
+                # Mark unit as reaffirmed in graph
+                if hasattr(self.graph_client, "update_node"):
+                    self.graph_client.update_node(target_id, {"status": "reaffirmed", "verdict": "reaffirmed"})
                 # Release action
                 action_id = f"act-release-{target_id}"
                 self._persist_action(
@@ -99,6 +119,7 @@ class DispatcherAgent(BaseAgent):
                     reason_code="INDEPENDENT_SUPPORT_VERIFIED",
                     details={"independent_groups": decision_props.get("independent_groups_count")},
                 )
+
                 emitted_events.append(
                     self._create_action_event(
                         action_id=action_id,
@@ -135,7 +156,12 @@ class DispatcherAgent(BaseAgent):
 
             else:
                 # Tainted: Hold action
+                if is_target_reaffirmed:
+                    # DEMAND 5 INVARIANT: A reaffirmed unit can NEVER be held or noticed under any agent interleaving
+                    continue
+
                 action_id = f"act-hold-{target_id}"
+
                 self._persist_action(
                     action_id=action_id,
                     action_kind="hold_unit",

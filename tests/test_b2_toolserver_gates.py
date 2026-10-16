@@ -12,14 +12,14 @@ Verifies:
 import pytest
 from fastmcp.exceptions import NotFoundError
 from contracts.ontology import EdgeRole, NodeRole
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from toolserver.gate_evaluator import GateEvaluator
 from toolserver.server import build_scoped_mcp_server
 
 
 @pytest.fixture
 def graph_setup():
-    client = StubGraphClient(tenant_id="tenant-mcp-test")
+    client = FalkorDBGraphClient(tenant_id="tenant-mcp-test", clean=True)
 
     # Untainted unit
     client.add_node(

@@ -723,7 +723,7 @@ export default function ForensicDossier() {
                       markerHeight="6"
                       orient="auto-start-reverse"
                     >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7E7A74" />
+                      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-muted)" />
                     </marker>
                     <marker
                       id="arrow-taint"
@@ -1264,67 +1264,74 @@ export default function ForensicDossier() {
             because the tool is absent!&quot; Gates are evaluated in Cypher directly against graph state.
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-            {/* Test 1: Untainted Batch Hold */}
-            <div
-              className="hairline-border"
-              style={{ padding: "20px", backgroundColor: "var(--bg-paper-elevated)" }}
-            >
-              <div
-                className="font-mono"
-                style={{ fontSize: "11px", fontWeight: 600, marginBottom: "8px", textTransform: "uppercase" }}
-              >
-                Test 1: Attempt Hold on Clean / Untainted Batch
-              </div>
-              <p className="font-body" style={{ fontSize: "12px", color: "var(--ink-secondary)", marginBottom: "16px" }}>
-                Expectation: The `hold_unit` gate evaluates in Cypher and returns `allowed=false`. The LLM
-                never sees or receives the tool.
-              </p>
-              <button
-                onClick={() => handleCheckGate("hold_unit", "unit-clean-sample")}
-                disabled={checkingGate}
-                className="font-mono hairline-border"
-                style={{
-                  padding: "6px 14px",
-                  backgroundColor: "var(--bg-paper)",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                Evaluate Gate in Cypher
-              </button>
-            </div>
+          {(() => {
+            const cleanUnitId = nodes.find(n => n.role?.toLowerCase() === "unit" && (!n.properties?.is_tainted || n.status === "reaffirmed"))?.id || nodes.find(n => n.role?.toLowerCase() === "unit")?.id || "";
+            const taintedUnitId = nodes.find(n => n.role?.toLowerCase() === "unit" && (n.properties?.is_tainted || n.status === "tainted"))?.id || nodes.find(n => n.role?.toLowerCase() === "unit")?.id || "";
 
-            {/* Test 2: Tainted Batch Hold */}
-            <div
-              className="hairline-border"
-              style={{ padding: "20px", backgroundColor: "var(--bg-paper-elevated)" }}
-            >
-              <div
-                className="font-mono"
-                style={{ fontSize: "11px", fontWeight: 600, marginBottom: "8px", textTransform: "uppercase" }}
-              >
-                Test 2: Attempt Release on Tainted Batch
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                {/* Test 1: Untainted Batch Hold */}
+                <div
+                  className="hairline-border"
+                  style={{ padding: "20px", backgroundColor: "var(--bg-paper-elevated)" }}
+                >
+                  <div
+                    className="font-mono"
+                    style={{ fontSize: "11px", fontWeight: 600, marginBottom: "8px", textTransform: "uppercase" }}
+                  >
+                    Test 1: Attempt Hold on Clean / Untainted Batch
+                  </div>
+                  <p className="font-body" style={{ fontSize: "12px", color: "var(--ink-secondary)", marginBottom: "16px" }}>
+                    Expectation: The `hold_unit` gate evaluates in Cypher and returns `allowed=false`. The LLM
+                    never sees or receives the tool. Target: <span className="font-mono">{cleanUnitId || "Scanning graph..."}</span>
+                  </p>
+                  <button
+                    onClick={() => handleCheckGate("hold_unit", cleanUnitId)}
+                    disabled={checkingGate || !cleanUnitId}
+                    className="font-mono hairline-border"
+                    style={{
+                      padding: "6px 14px",
+                      backgroundColor: "var(--bg-paper)",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Evaluate Gate in Cypher
+                  </button>
+                </div>
+
+                {/* Test 2: Tainted Batch Hold */}
+                <div
+                  className="hairline-border"
+                  style={{ padding: "20px", backgroundColor: "var(--bg-paper-elevated)" }}
+                >
+                  <div
+                    className="font-mono"
+                    style={{ fontSize: "11px", fontWeight: 600, marginBottom: "8px", textTransform: "uppercase" }}
+                  >
+                    Test 2: Attempt Release on Tainted Batch
+                  </div>
+                  <p className="font-body" style={{ fontSize: "12px", color: "var(--ink-secondary)", marginBottom: "16px" }}>
+                    Expectation: The `release_unit` gate evaluates `WHERE u.is_tainted = false` and refuses release
+                    of contaminated lots. Target: <span className="font-mono">{taintedUnitId || "Scanning graph..."}</span>
+                  </p>
+                  <button
+                    onClick={() => handleCheckGate("release_unit", taintedUnitId)}
+                    disabled={checkingGate || !taintedUnitId}
+                    className="font-mono hairline-border"
+                    style={{
+                      padding: "6px 14px",
+                      backgroundColor: "var(--bg-paper)",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Evaluate Gate in Cypher
+                  </button>
+                </div>
               </div>
-              <p className="font-body" style={{ fontSize: "12px", color: "var(--ink-secondary)", marginBottom: "16px" }}>
-                Expectation: The `release_unit` gate evaluates `WHERE u.is_tainted = false` and refuses release
-                of contaminated lots.
-              </p>
-              <button
-                onClick={() => handleCheckGate("release_unit", "unit-tainted-sample")}
-                disabled={checkingGate}
-                className="font-mono hairline-border"
-                style={{
-                  padding: "6px 14px",
-                  backgroundColor: "var(--bg-paper)",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                Evaluate Gate in Cypher
-              </button>
-            </div>
-          </div>
+            );
+          })()}
 
           {gateResult && (
             <div

@@ -10,8 +10,16 @@ fault:
   fault_type: "supplier_alert"
   reason: "Upstream supplier reported presumptive positive for Listeria monocytogenes in lot"
 
+# Realistic naive recall baseline declared by scenario rule:
+naive_recall:
+  rule: "all batches touched by the affected instrument type in the window"
+  instrument_type: "pathogen_rapid_assay"
+  time_window_hours: 48
+  description: "Naive blanket recall of all product batches touched or analyzed by the affected test assay within the incident time window"
+
+
 expect:
-  min_units: 3
+  min_units: 30
   min_tainted_decisions: 1
   has_lateral_link: true
   min_actions: 1

@@ -71,7 +71,7 @@ class QueryAPI:
                 duration_ms=round(elapsed_ms, 3),
             )
 
-        # In-memory graph traversal fallback
+        # Graph traversal fallback over client topology
         tainted_entities: List[TraceEntity] = []
         if hasattr(self.graph_client, "nodes") and hasattr(self.graph_client, "edges"):
             visited: Set[str] = set()

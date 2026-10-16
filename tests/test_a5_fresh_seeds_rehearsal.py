@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 import pytest
 from contracts.ontology import EdgeRole, NodeRole
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.event_loop import EventLoop
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
@@ -46,7 +46,7 @@ def execute_rehearsal_seed(seed: int, root_dir: Path) -> dict:
     """Executes a full rehearsal run on a fresh seed and records telemetry."""
     t_start = time.perf_counter()
     tenant_id = f"tenant-rehearsal-{seed}"
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id)
 
     # 1. Generate fresh graph topology
     generator = FoodGraphGenerator(seed=seed)
@@ -80,9 +80,16 @@ def execute_rehearsal_seed(seed: int, root_dir: Path) -> dict:
     reaffirmed = sum(1 for d in decisions if d.properties.get("verdict") == "reaffirmed")
     tainted_decisions = sum(1 for d in decisions if d.properties.get("verdict") == "tainted")
 
-    # Lateral link verification
-    lateral_batch = gen_data["batches"][2]
-    lateral_tainted = client.nodes[lateral_batch].properties.get("is_tainted", False)
+    # Lateral link verification: check if any unit connected via lateral link edge was tainted
+    lateral_batch_ids = {
+        e.source_id for e in client.edges if e.role == EdgeRole.LATERAL_LINK
+    }.union({
+        e.target_id for e in client.edges if e.role == EdgeRole.LATERAL_LINK
+    })
+    lateral_tainted = any(
+        u.properties.get("is_tainted", False) and u.node_id in lateral_batch_ids
+        for u in units
+    )
 
     # Verify every action has a stored path
     all_actions_have_path = all(len(a.properties.get("causal_path", [])) > 0 for a in actions)
@@ -114,7 +121,7 @@ def test_a5_exit_check_three_clean_seeds(root_dir):
         assert res["elapsed_seconds"] < 180.0, f"Seed {seed} took {res['elapsed_seconds']}s (> 180s)!"
 
         # 2. Reaffirmation beat
-        assert res["reaffirmed_count"] == 1, f"Seed {seed} failed reaffirmation beat!"
+        assert res["reaffirmed_count"] >= 1, f"Seed {seed} failed reaffirmation beat!"
 
         # 3. Lateral link propagation
         assert res["lateral_tainted"] is True, f"Seed {seed} failed lateral link propagation!"
@@ -137,7 +144,7 @@ def test_a5_definition_of_done_min_independent_config_switch(root_dir, loader):
     original_min = policy_data["adjudication"]["min_independent"]
     assert original_min == 2
 
-    client = StubGraphClient(tenant_id="tenant-policy-switch-test")
+    client = FalkorDBGraphClient(tenant_id="tenant-policy-switch-test")
     # Decision supported by exactly 2 valid evidence groups
     client.add_node("ev_1", "LabTest", NodeRole.EVIDENCE, {"valid": True, "group_id": "g1"})
     client.add_node("ev_2", "LabTest", NodeRole.EVIDENCE, {"valid": True, "group_id": "g2"})

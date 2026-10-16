@@ -14,7 +14,7 @@ from pathlib import Path
 import random
 import pytest
 from contracts.ontology import NodeRole, EdgeRole
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.event_loop import EventLoop
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
@@ -85,7 +85,7 @@ def test_a3_exit_check_property_never_reaffirm_without_independent_support():
 
     for iteration in range(100):
         tenant_id = f"tenant-prop-{iteration}"
-        client = StubGraphClient(tenant_id=tenant_id)
+        client = FalkorDBGraphClient(tenant_id=tenant_id)
 
         min_independent = rng.randint(1, 4)
         decision_id = f"dec_{iteration}_{rng.randint(100, 999)}"
@@ -169,7 +169,7 @@ def test_a3_part_b_multi_agent_integration(root_dir, loader):
     query_builder = QueryBuilder(food_onto)
 
     tenant_id = "tenant-a3-integration"
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id)
     gen = FoodGraphGenerator(seed=303)
     gen.generate(graph_client=client)
 

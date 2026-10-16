@@ -10,9 +10,17 @@ fault:
   fault_type: "retraction"
   reason: "Instrumentation recalibration failure: sensor drift exceeded tolerance (+2.8C)"
 
+# Realistic naive recall baseline declared by scenario rule:
+naive_recall:
+  rule: "all batches touched by the affected instrument type in the window"
+  instrument_type: "temperature_telemetry_sensor"
+  time_window_hours: 48
+  description: "Naive blanket recall of all product batches touched or monitored by the affected instrument type within the incident time window"
+
+
 # Section 0 Rule & Part A rules: expect blocks are read ONLY by test assertions, NEVER by agent code.
 expect:
-  min_units: 3
+  min_units: 30
   min_tainted_decisions: 1
   min_reaffirmed_decisions: 1
   has_lateral_link: true

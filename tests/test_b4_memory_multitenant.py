@@ -13,7 +13,7 @@ import asyncio
 import pytest
 from contracts.ontology import EdgeRole, NodeRole
 from contracts.events import EventEnvelope, EventType
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.sentinel import SentinelAgent
 from agents.tracer import TracerAgent
 from agents.adjudicator import AdjudicatorAgent
@@ -25,7 +25,7 @@ from agents.memory import ProceduralMemory
 
 def test_b4_exit_check_below_threshold_asks_human_not_claiming_learned():
     """Phase B4 Exit Check: Below threshold the system says so and asks a human instead of claiming it learned."""
-    client = StubGraphClient(tenant_id="tenant-memory-test")
+    client = FalkorDBGraphClient(tenant_id="tenant-memory-test")
     memory = ProceduralMemory(
         tenant_id="tenant-memory-test",
         graph_client=client,
@@ -67,7 +67,7 @@ def test_b4_exit_check_below_threshold_asks_human_not_claiming_learned():
 
 def test_b4_above_threshold_procedures_ranked_by_stored_outcomes():
     """Above threshold, procedures are ranked strictly by stored graph outcome edges."""
-    client = StubGraphClient(tenant_id="tenant-memory-test")
+    client = FalkorDBGraphClient(tenant_id="tenant-memory-test")
     memory = ProceduralMemory(
         tenant_id="tenant-memory-test",
         graph_client=client,
@@ -108,7 +108,7 @@ def test_b4_above_threshold_procedures_ranked_by_stored_outcomes():
 
 def test_b4_llm_judgement_task_on_unverifiable():
     """Verify required LLM task: drafts specific human question naming missing link using graph facts."""
-    client = StubGraphClient(tenant_id="tenant-llm-task")
+    client = FalkorDBGraphClient(tenant_id="tenant-llm-task")
 
     # Suspect evidence and missing record
     client.add_node("ev-missing-rec", "Record", NodeRole.EVIDENCE, {"valid": False, "unverifiable": True})
@@ -139,7 +139,7 @@ async def test_b4_concurrent_two_tenant_run():
     """Concurrent Two-Tenant Run: One graph per tenant, concurrent event loops, zero cross-contamination."""
     # Tenant Alpha setup (has an active incident)
     tenant_a = "tenant-alpha"
-    client_a = StubGraphClient(tenant_id=tenant_a)
+    client_a = FalkorDBGraphClient(tenant_id=tenant_a)
     client_a.add_node("ev-a1", "Reading", NodeRole.EVIDENCE, {"valid": True})
     client_a.add_node("dec-a1", "Disposition", NodeRole.DECISION, {"status": "pending"})
     client_a.add_edge("ev-a1", "dec-a1", "SUPPORT", EdgeRole.SUPPORT)
@@ -156,7 +156,7 @@ async def test_b4_concurrent_two_tenant_run():
 
     # Tenant Beta setup (clean operational batch, separate alert on independent lot)
     tenant_b = "tenant-beta"
-    client_b = StubGraphClient(tenant_id=tenant_b)
+    client_b = FalkorDBGraphClient(tenant_id=tenant_b)
     client_b.add_node("ev-b1", "Reading", NodeRole.EVIDENCE, {"valid": True, "group_id": "b-indep-1"})
     client_b.add_node("ev-b2", "Reading", NodeRole.EVIDENCE, {"valid": True, "group_id": "b-indep-2"})
     client_b.add_node("dec-b1", "Disposition", NodeRole.DECISION, {"status": "pending"})

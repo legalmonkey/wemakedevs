@@ -153,6 +153,15 @@ class TracerAgent(BaseAgent):
                     },
                 )
 
+            # Check if this hop crossed a lateral link edge
+            is_lateral = False
+            if hasattr(self.graph_client, "edges"):
+                for e in self.graph_client.edges:
+                    if e.role == EdgeRole.LATERAL_LINK:
+                        if (e.source_id == source_id and e.target_id == target_id) or (e.source_id == target_id and e.target_id == source_id):
+                            is_lateral = True
+                            break
+
             # Emit taint.added event
             evt_taint = self.create_event(
                 event_type=EventType.TAINT_ADDED,
@@ -164,6 +173,7 @@ class TracerAgent(BaseAgent):
                     "target_role": target_node.role.value,
                     "hops": new_hops,
                     "via_path": new_path,
+                    "is_lateral": is_lateral,
                 },
             )
             emitted_events.append(evt_taint)

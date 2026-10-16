@@ -57,7 +57,7 @@ def run_clean_seed_demonstration(seed: int) -> dict:
     lateral_taints = [
         e for e in events_captured
         if e.get("event_type") == EventType.TAINT_ADDED.value
-        and "lateral" in e.get("payload", {}).get("target_id", "")
+        and (e.get("payload", {}).get("is_lateral") or "lateral" in e.get("payload", {}).get("target_id", ""))
     ]
 
     # 3. Actions and Why drawer paths

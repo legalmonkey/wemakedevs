@@ -48,7 +48,7 @@ from contracts.gates import (
     GatesConfiguration,
     GateEvaluationResult,
 )
-from agents.stub_client import StubGraphClient
+from engine.falkordb_client import FalkorDBGraphClient
 from agents.base import BaseAgent, WorkItem
 from agents.event_loop import EventLoop
 from agents.llm_adapter import StubLLMAdapter
@@ -216,7 +216,7 @@ def test_frozen_contracts_integrity():
 
 def test_stub_graph_client_query_api_protocol():
     """Verify StubGraphClient satisfies QueryAPIProtocol with query telemetry."""
-    client = StubGraphClient(tenant_id="test-tenant")
+    client = FalkorDBGraphClient(tenant_id="test-tenant")
 
     # Add sample nodes and edges
     client.add_node("ev-1", "TestReading", NodeRole.EVIDENCE, {"valid": True, "group_id": "grp-1"})
@@ -300,7 +300,7 @@ def test_b0_event_loop_runs_against_stub_graph():
     - Event stream records all lifecycle events with tenant_id, timestamp, entity_ids.
     """
     tenant_id = "tenant-001"
-    client = StubGraphClient(tenant_id=tenant_id)
+    client = FalkorDBGraphClient(tenant_id=tenant_id)
     loop = EventLoop(tenant_id=tenant_id)
 
     # Set up initial graph state with one pending unhandled Event node
