@@ -40,7 +40,7 @@ def test_s3_scaled_topology_min_independent_0_to_4():
     for min_indep in [0, 1, 2, 3, 4]:
         # Reset decisions to unadjudicated state
         for dec_id in decisions:
-            client.update_node(dec_id, {"verdict_set": False, "verdict": "pending", "status": "pending"})
+            client.update_node(dec_id, {"is_tainted": True, "verdict_set": False, "verdict": "pending", "status": "pending"})
 
         # Run Adjudicator with current min_independent threshold
         adj = AdjudicatorAgent(tenant_id=client.tenant_id, graph_client=client)
