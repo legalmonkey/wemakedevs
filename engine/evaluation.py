@@ -157,9 +157,10 @@ class EvaluationHarness:
             durations.append(elapsed_ms)
 
             # 4. Measure node outcomes
-            units = [n for n in client.nodes.values() if n.role == NodeRole.UNIT]
-            decisions = [n for n in client.nodes.values() if n.role == NodeRole.DECISION]
-            actions = [n for n in client.nodes.values() if n.role == NodeRole.ACTION]
+            all_nodes = list(client.nodes.values())
+            units = [n for n in all_nodes if n.role == NodeRole.UNIT]
+            decisions = [n for n in all_nodes if n.role == NodeRole.DECISION]
+            actions = [n for n in all_nodes if n.role == NodeRole.ACTION]
 
             # Naive recall baseline computed according to rule declared in scenario file:
             scenario_file = Path(__file__).resolve().parent.parent / "scenarios" / "scenario_calibration_drift.yaml"
