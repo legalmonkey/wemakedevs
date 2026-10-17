@@ -171,6 +171,12 @@ async def get_query_log():
     }
 
 
+@app.get("/api/actions/pending")
+async def get_pending_actions():
+    """Returns list of actions awaiting human operator adjudication."""
+    return {"pending_actions": INCIDENT_SERVICE.get_pending_actions()}
+
+
 @app.get("/api/actions/{action_id}/why", response_model=WhyPathResponse)
 async def get_action_why(action_id: str):
     """Retrieves the stored causal chain of custody for Why drawer (Rule 7)."""

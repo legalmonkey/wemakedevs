@@ -45,10 +45,15 @@ logger = logging.getLogger(__name__)
 class IncidentService:
     """Manages active incident runs, graph telemetry, and forensic analysis on FalkorDB."""
 
-    def __init__(self) -> None:
+    def __init__(self, stable_tenant_id: Optional[str] = None) -> None:
+        self.stable_tenant_id: Optional[str] = stable_tenant_id
         self.current_seed: int = 101
-        self.current_tenant_id: str = "tenant-seed-101"
-        self.graph_client: FalkorDBGraphClient = generate_seeded_incident(self.current_seed)
+        self.current_tenant_id: str = stable_tenant_id or "tenant-seed-101"
+        self.graph_client: FalkorDBGraphClient = generate_seeded_incident(
+            self.current_seed,
+            clean=(stable_tenant_id is None),
+            tenant_id=self.current_tenant_id,
+        )
         self.gate_evaluator: GateEvaluator = GateEvaluator(self.graph_client)
         self.is_running: bool = False
         self.actions_registry: Dict[str, Dict[str, Any]] = {}
@@ -59,11 +64,11 @@ class IncidentService:
         self.recorded_events: List[Dict[str, Any]] = []
 
     def load_seed(self, seed: int, tenant_id: Optional[str] = None) -> None:
-        """Initializes a fresh incident topology from seed."""
+        """Initializes an incident topology from seed (supports stable-tenant mode)."""
         self.current_seed = seed
-        self.graph_client = generate_seeded_incident(seed)
-        if tenant_id:
-            self.graph_client.tenant_id = tenant_id
+        target_tenant = self.stable_tenant_id or tenant_id
+        is_clean = (self.stable_tenant_id is None)
+        self.graph_client = generate_seeded_incident(seed, clean=is_clean, tenant_id=target_tenant)
         self.current_tenant_id = self.graph_client.tenant_id
         self.gate_evaluator = GateEvaluator(self.graph_client)
         self.actions_registry.clear()
@@ -228,7 +233,7 @@ class IncidentService:
 
         self.is_running = True
         self.load_seed(seed, tenant_id)
-        pace = max(speed_ms / 1000.0, 0.1)
+        pace = (speed_ms / 1000.0) if speed_ms > 0 else 0.0
         run_uid = uuid.uuid4().hex[:6]
 
         tenant = self.current_tenant_id
@@ -236,8 +241,13 @@ class IncidentService:
         # Helper to publish events
         async def publish(event_dict: Dict[str, Any]) -> None:
             self.recorded_events.append(event_dict)
-            await broadcast_callback(event_dict)
-            await asyncio.sleep(pace)
+            if broadcast_callback is not None:
+                if asyncio.iscoroutinefunction(broadcast_callback):
+                    await broadcast_callback(event_dict)
+                else:
+                    broadcast_callback(event_dict)
+            if pace > 0:
+                await asyncio.sleep(pace)
 
         # Helper to log Cypher queries
         def log_query(query_text: str) -> None:
@@ -395,6 +405,41 @@ class IncidentService:
             stored_path_verified=True,
         )
 
+    def get_pending_actions(self) -> List[Dict[str, Any]]:
+        """Returns all actions awaiting human operator adjudication."""
+        pending: List[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for aid, data in self.actions_registry.items():
+            if data.get("requires_approval") and not data.get("approved"):
+                seen_ids.add(aid)
+                pending.append({
+                    "action_id": aid,
+                    "action_kind": data.get("action_kind", "Action"),
+                    "target_entity_id": data.get("target_entity_id", aid),
+                    "draft_content": data.get("draft_content", "Awaiting operator sign-off"),
+                    "causal_path": data.get("causal_path", []),
+                    "requires_approval": True,
+                    "approved": False,
+                })
+
+        for node_id, node in self.graph_client.nodes.items():
+            role_val = node.role.value if hasattr(node.role, "value") else str(node.role)
+            if role_val.lower() == "action" and node_id not in seen_ids:
+                if node.properties.get("requires_approval", True) and not node.properties.get("approved", False):
+                    seen_ids.add(node_id)
+                    pending.append({
+                        "action_id": node_id,
+                        "action_kind": node.properties.get("action_kind") or node.kind,
+                        "target_entity_id": node.properties.get("target_entity_id", node_id),
+                        "draft_content": node.properties.get("draft_content") or "Requires operator review before dispatch.",
+                        "causal_path": node.properties.get("causal_path", [node_id]),
+                        "requires_approval": True,
+                        "approved": False,
+                    })
+
+        return pending
+
     def approve_action(self, action_id: str, operator_notes: Optional[str] = None) -> Dict[str, Any]:
         """Approves a human-gated action (e.g. customer notification or hold confirmation)."""
         if action_id in self.actions_registry:
@@ -403,17 +448,31 @@ class IncidentService:
                 self.actions_registry[action_id]["operator_notes"] = operator_notes
 
         action_node = self.graph_client.get_node(action_id)
+        action_kind = "containment"
+        procedure_id = "proc-standard-containment"
         if action_node:
             action_node.properties["approved"] = True
+            action_kind = (
+                action_node.properties.get("action_kind")
+                or action_node.properties.get("kind")
+                or action_node.kind
+                or "draft_notice"
+            )
+            procedure_id = (
+                action_node.properties.get("procedure_id")
+                or f"proc-{str(action_kind).replace('_', '-')}"
+            )
+            action_node.properties["action_kind"] = action_kind
+            action_node.properties["kind"] = action_kind
             if operator_notes:
                 action_node.properties["operator_notes"] = operator_notes
 
-        # Demand (3): Real incident writes its own episode to per-tenant persistent memory with outcome 'approved'
+        # Demand 5: Dynamic procedure names and 'approved' outcome in per-tenant procedural memory
         memory = ProceduralMemory(tenant_id=self.current_tenant_id, graph_client=self.graph_client)
         episode_id = f"ep_{self.current_tenant_id}_{action_id}"
         memory.record_episode(
             episode_id=episode_id,
-            procedure_id="proc-rapid-containment",
+            procedure_id=procedure_id,
             outcome="approved",  # Defined from recorded human approval!
             duration_seconds=42.0,
         )
@@ -421,6 +480,8 @@ class IncidentService:
         return {
             "status": "approved",
             "action_id": action_id,
+            "action_kind": action_kind,
+            "procedure_id": procedure_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "operator_notes": operator_notes or "Approved by forensic operator",
             "persistent_episode_recorded": episode_id,
@@ -436,19 +497,33 @@ class IncidentService:
                 self.actions_registry[action_id]["operator_notes"] = operator_notes
 
         action_node = self.graph_client.get_node(action_id)
+        action_kind = "containment"
+        procedure_id = "proc-standard-containment"
         if action_node:
             action_node.properties["approved"] = False
             action_node.properties["rejected"] = True
+            action_kind = (
+                action_node.properties.get("action_kind")
+                or action_node.properties.get("kind")
+                or action_node.kind
+                or "draft_notice"
+            )
+            procedure_id = (
+                action_node.properties.get("procedure_id")
+                or f"proc-{str(action_kind).replace('_', '-')}"
+            )
+            action_node.properties["action_kind"] = action_kind
+            action_node.properties["kind"] = action_kind
             if operator_notes:
                 action_node.properties["operator_notes"] = operator_notes
 
-        # Demand (3): Record 'rejected' outcome in per-tenant procedural memory
+        # Demand 5: Dynamic procedure names and 'rejected' outcome in per-tenant procedural memory
         memory = ProceduralMemory(tenant_id=self.current_tenant_id, graph_client=self.graph_client)
 
         episode_id = f"ep_{self.current_tenant_id}_{action_id}"
         memory.record_episode(
             episode_id=episode_id,
-            procedure_id="proc-rapid-containment",
+            procedure_id=procedure_id,
             outcome="rejected",  # Defined from human rejection!
             duration_seconds=42.0,
         )
@@ -456,6 +531,8 @@ class IncidentService:
         return {
             "status": "rejected",
             "action_id": action_id,
+            "action_kind": action_kind,
+            "procedure_id": procedure_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "operator_notes": operator_notes or "Rejected by forensic operator",
             "persistent_episode_recorded": episode_id,
