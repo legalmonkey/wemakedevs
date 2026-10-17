@@ -2177,3 +2177,77 @@ Status: **PASS** (Zero planted or stale IDs in live code or graphs).
 
 Status: **PASS** (126 of 126 tests passing, zero loosened thresholds, zero skipped tests).
 
+---
+
+## Item 3: Real Crash Safety with Mid-Work Process Kills & Concurrency Race Verification
+
+### Command Executed
+`python scripts/verify_item3_real_crash_safety.py`
+
+### Raw Command Output
+```
+=========================================================================================================
+ITEM 3: REAL CRASH SAFETY WITH MID-WORK PROCESS KILLS & CONCURRENCY RACE VERIFICATION
+=========================================================================================================
+
+1. Single Agent Mid-Work Real OS Process Kills Across 5 Seeds:
+
+Seed   | Test Case              | Final Graph Hash                 | Match Baseline?  | Duplicates
+---------------------------------------------------------------------------------------------------------
+101    | Baseline (Uninterrupted) | faeef0380ff890fffdb183521df8... | BASELINE         | 0
+101    | Kill Sentinel          | faeef0380ff890fffdb183521df8... | PASS (MATCH)     | 0
+101    | Kill Tracer            | faeef0380ff890fffdb183521df8... | PASS (MATCH)     | 0
+101    | Kill Adjudicator       | faeef0380ff890fffdb183521df8... | PASS (MATCH)     | 0
+101    | Kill Dispatcher        | faeef0380ff890fffdb183521df8... | PASS (MATCH)     | 0
+202    | Baseline (Uninterrupted) | 569611585ea5937b5f0b283d056f... | BASELINE         | 0
+202    | Kill Sentinel          | 569611585ea5937b5f0b283d056f... | PASS (MATCH)     | 0
+202    | Kill Tracer            | 569611585ea5937b5f0b283d056f... | PASS (MATCH)     | 0
+202    | Kill Adjudicator       | 569611585ea5937b5f0b283d056f... | PASS (MATCH)     | 0
+202    | Kill Dispatcher        | 569611585ea5937b5f0b283d056f... | PASS (MATCH)     | 0
+303    | Baseline (Uninterrupted) | a0715c281b7f148aacfea99a122d... | BASELINE         | 0
+303    | Kill Sentinel          | a0715c281b7f148aacfea99a122d... | PASS (MATCH)     | 0
+303    | Kill Tracer            | a0715c281b7f148aacfea99a122d... | PASS (MATCH)     | 0
+303    | Kill Adjudicator       | a0715c281b7f148aacfea99a122d... | PASS (MATCH)     | 0
+303    | Kill Dispatcher        | a0715c281b7f148aacfea99a122d... | PASS (MATCH)     | 0
+404    | Baseline (Uninterrupted) | a77e6043ad4d84fe4d5c1620cd5f... | BASELINE         | 0
+404    | Kill Sentinel          | a77e6043ad4d84fe4d5c1620cd5f... | PASS (MATCH)     | 0
+404    | Kill Tracer            | a77e6043ad4d84fe4d5c1620cd5f... | PASS (MATCH)     | 0
+404    | Kill Adjudicator       | a77e6043ad4d84fe4d5c1620cd5f... | PASS (MATCH)     | 0
+404    | Kill Dispatcher        | a77e6043ad4d84fe4d5c1620cd5f... | PASS (MATCH)     | 0
+505    | Baseline (Uninterrupted) | d89e22fb4548f52cda188db22960... | BASELINE         | 0
+505    | Kill Sentinel          | d89e22fb4548f52cda188db22960... | PASS (MATCH)     | 0
+505    | Kill Tracer            | d89e22fb4548f52cda188db22960... | PASS (MATCH)     | 0
+505    | Kill Adjudicator       | d89e22fb4548f52cda188db22960... | PASS (MATCH)     | 0
+505    | Kill Dispatcher        | d89e22fb4548f52cda188db22960... | PASS (MATCH)     | 0
+---------------------------------------------------------------------------------------------------------
+
+2. Two-Agent Mid-Work Process Kills at Different Timings (Sentinel @ 0.08s, Tracer @ 0.18s):
+
+Seed   | Test Case              | Final Graph Hash                 | Match Baseline?  | Duplicates
+---------------------------------------------------------------------------------------------------------
+101    | Kill Sentinel + Tracer | faeef0380ff890fffdb183521df8... | PASS (MATCH)     | 0
+202    | Kill Sentinel + Tracer | 569611585ea5937b5f0b283d056f... | PASS (MATCH)     | 0
+303    | Kill Sentinel + Tracer | a0715c281b7f148aacfea99a122d... | PASS (MATCH)     | 0
+404    | Kill Sentinel + Tracer | a77e6043ad4d84fe4d5c1620cd5f... | PASS (MATCH)     | 0
+505    | Kill Sentinel + Tracer | d89e22fb4548f52cda188db22960... | PASS (MATCH)     | 0
+---------------------------------------------------------------------------------------------------------
+
+3. Concurrency Race Condition Verification (Hold vs Notice Gate Invariance):
+
+Race Invariant Check: PASS
+Concurrent Conflicts: 0
+Details: Zero concurrent holds/notices across 20 randomized agent races.
+---------------------------------------------------------------------------------------------------------
+
+[ALL CHECKS PASSED] ITEM 3 REAL CRASH SAFETY VERIFIED.
+```
+
+### Verification Findings
+1. **Real Process Kills**: Evaluated using true independent operating system processes launched via `python -m agents.process_runner --agent <Name> --tenant <ID>` and killed mid-work using `proc.kill()` (OS SIGKILL).
+2. **Canonical State Idempotency**: All killed processes restarted and reached completion with final graph state hashing bit-for-bit identical to the uninterrupted baseline across 100% of tested seeds (101, 202, 303, 404, 505).
+3. **Action Deduplication**: Zero duplicate action nodes created across all single-kill and multi-kill runs (`(action_type, target_entity_id, procedure_id)` uniqueness strictly preserved).
+4. **Concurrency Race Safety**: Verified across 20 randomized interleaving races. Reaffirmed units never received hold or customer-notice actions; zero concurrent hold/notice conflicts observed.
+
+Status: **PASS** (Zero hash divergence, zero duplicates, zero race condition violations).
+
+

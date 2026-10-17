@@ -55,16 +55,21 @@ class TracerAgent(BaseAgent):
             return work_items
 
         # Nodes that are suspect or tainted can propagate downstream
+        # Decision nodes can only propagate once adjudicated with verdict == 'tainted'
         active_nodes = [
             n for n in self.graph_client.nodes.values()
-            if n.properties.get("is_suspect", False) or n.properties.get("is_tainted", False)
+            if (n.properties.get("is_suspect", False) or n.properties.get("is_tainted", False))
+            and (n.role != NodeRole.DECISION or n.properties.get("verdict") == "tainted")
         ]
         # Strict BFS ordering: lowest hops first, then deterministic node_id tie-breaker
         active_nodes.sort(key=lambda n: (n.properties.get("taint_hops", 0), n.node_id))
 
+        target_hop: Optional[int] = None
         for node in active_nodes:
             curr_id = node.node_id
             curr_hops = node.properties.get("taint_hops", 0)
+            if target_hop is not None and curr_hops > target_hop:
+                break
             curr_path = node.properties.get("taint_via_path") or [curr_id]
             out_edges = self.graph_client.get_outgoing_edges(curr_id)
             in_edges = self.graph_client.get_incoming_edges(curr_id)
@@ -114,6 +119,8 @@ class TracerAgent(BaseAgent):
                                 untraced_targets.append(lateral_unit_id)
 
             if untraced_targets:
+                if target_hop is None:
+                    target_hop = curr_hops
                 work_items.append(
                     WorkItem(
                         item_id=f"work-trace-{curr_id}",
