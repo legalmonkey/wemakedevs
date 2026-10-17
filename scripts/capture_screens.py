@@ -32,6 +32,25 @@ def capture_screens(prefix: str, url: str = "http://localhost:3000", wait_ms: in
             page.goto(url, wait_until="networkidle")
             time.sleep(wait_ms / 1000.0)
 
+            # Contextual interaction per step
+            if "why_drawer" in prefix:
+                try:
+                    page.evaluate(
+                        "const el = document.querySelector('svg g[role=\"button\"]'); if (el) el.dispatchEvent(new MouseEvent('click', {bubbles: true}));"
+                    )
+                    time.sleep(0.8)
+                except Exception as e:
+                    print("Could not dispatch click for Why drawer:", e)
+            elif "state" in prefix:
+                try:
+                    # Switch to Review Queue tab for states view
+                    page.evaluate(
+                        "const btns = Array.from(document.querySelectorAll('button')); const qBtn = btns.find(b => b.textContent && b.textContent.includes('Review Queue')); if (qBtn) qBtn.click();"
+                    )
+                    time.sleep(0.8)
+                except Exception as e:
+                    print("Could not switch tab for states:", e)
+
             filename = f"{prefix}_{vp['name']}.png"
             file_path = screens_dir / filename
             page.screenshot(path=str(file_path), full_page=False)
