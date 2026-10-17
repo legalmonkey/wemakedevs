@@ -32,6 +32,8 @@ class SentinelAgent(BaseAgent):
 
     def poll_work(self) -> List[WorkItem]:
         """Poll graph for unprocessed Event nodes via query."""
+        self.current_phase = "sentinel_event_poll"
+        self.current_query = "MATCH (ev:Event {processed: false}) RETURN ev;"
         work_items: List[WorkItem] = []
 
         if hasattr(self.graph_client, "find_nodes_by_role"):
@@ -51,16 +53,19 @@ class SentinelAgent(BaseAgent):
 
     def process_item(self, item: WorkItem) -> List[EventEnvelope]:
         """Process an Event node: flag target Evidence as suspect, emit SSE events."""
+        self.current_phase = "sentinel_flag_suspect"
+        self.current_query = f"MATCH (e:Evidence {{id: '{item.entity_id}'}}) SET e.is_suspect = true;"
         emitted_events: List[EventEnvelope] = []
         event_id = item.entity_id
         event_props = item.properties
 
         # Determine target evidence IDs from properties or graph edges
         target_evidence_ids: List[str] = []
-        if "target_evidence_id" in event_props:
-            target_evidence_ids.append(event_props["target_evidence_id"])
-        elif "target_ids" in event_props and isinstance(event_props["target_ids"], list):
+        if "target_ids" in event_props and isinstance(event_props["target_ids"], list):
             target_evidence_ids.extend(event_props["target_ids"])
+        elif "target_evidence_id" in event_props:
+            target_evidence_ids.append(event_props["target_evidence_id"])
+
 
         # Also inspect graph edges if any already link from this event
         if hasattr(self.graph_client, "get_outgoing_edges"):

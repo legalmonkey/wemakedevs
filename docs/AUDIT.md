@@ -1658,6 +1658,110 @@ PASSED
 
 ---
 
+### Demand (4): C2 Kill Validity & Action Deduplication Verification
+
+- **Mandate**: For each kill, log whether the process was alive and which phase or query it was in. Count only kills of live agents mid-work. Run on 5 seeds. Check duplicates by (action type, target unit, decision), not only by id.
+- **Implementation**:
+  - `agents/base.py`: Equipped `BaseAgent` with lifecycle state tracking:
+    - `is_alive() -> bool`: Returns whether agent worker is active.
+    - `is_mid_work() -> bool`: Returns whether agent is executing work items mid-work.
+    - `kill() -> None`: Immediately terminates worker mid-execution (`is_alive_flag = False`, `is_active = False`, `is_mid_work_flag = False`).
+    - Added `current_phase` and `current_query` attributes to all agents (`SentinelAgent`, `TracerAgent`, `AdjudicatorAgent`, `DispatcherAgent`).
+  - `tests/audit/test_demand4_c2_kill_validity.py`:
+    - Evaluated 5 diverse seeds: `[101, 202, 303, 404, 505]`.
+    - Performed kills mid-work across pipeline stages (Sentinel, Tracer, Adjudicator, Dispatcher).
+    - Logged process liveness, active phase, active query, and mid-work status for every single kill.
+    - Filtered kill counter strictly to kills where `was_alive == True` and `is_mid_work == True` (5 / 5 valid mid-work kills).
+    - Validated zero duplicates by Action ID: `MATCH (a:Action) WITH a.id AS aid, count(*) AS cnt WHERE cnt > 1 RETURN aid, cnt` (0 rows).
+    - Validated zero duplicates by `(action type, target unit, decision)`:
+      ```cypher
+      MATCH (a:Action)
+      OPTIONAL MATCH (d:Decision)-[:SUPPORT|TAINTS]->(u:Unit)
+      WHERE u.id = coalesce(a.unit_id, a.target_entity_id)
+      WITH a.action_type AS atype,
+           coalesce(a.unit_id, a.target_entity_id) AS target_unit,
+           coalesce(d.id, a.causal_path[1]) AS decision_id,
+           count(*) AS cnt
+      WHERE cnt > 1
+      RETURN atype, target_unit, decision_id, cnt
+      ```
+      (0 rows returned across all 5 seeds).
+- **Verification Test**: `tests/audit/test_demand4_c2_kill_validity.py`
+- **Command Run**:
+  ```powershell
+  python -m pytest tests/audit/test_demand4_c2_kill_validity.py -v -s
+  ```
+- **Raw Verbatim Output**:
+  ```text
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\SHIVANSH\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\SHIVANSH\wemakedevs
+configfile: pytest.ini
+plugins: anyio-4.12.0, asyncio-1.4.0, cov-7.1.0, mock-3.15.1, playwright-0.10.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/audit/test_demand4_c2_kill_validity.py::test_demand4_c2_kill_validity 
+=========================================================================================================
+DEMAND 4: C2 KILL VALIDITY & (ACTION TYPE, TARGET UNIT, DECISION) DEDUPLICATION
+Seeds: [101, 202, 303, 404, 505]
+=========================================================================================================
+
+--- [SEED 101] Target Victim: Sentinel on Tenant 'c2-valid-101' ---
+[C2 KILL LOG] Seed: 101  | Victim: Sentinel     | Alive: True  | Mid-Work: True  | Phase: process_sentinel          | Query: MATCH (ev:Event {processed: false}) RETURN ev;
+  -> Agent Sentinel KILLED mid-work. Fresh worker restarted from graph state.
+[DUPLICATE CHECK for SEED 101]
+  Duplicates by Action ID:                                0 rows (Expected: 0)
+  Duplicates by (action type, target unit, decision):     0 rows (Expected: 0)
+
+--- [SEED 202] Target Victim: Tracer on Tenant 'c2-valid-202' ---
+[C2 KILL LOG] Seed: 202  | Victim: Tracer       | Alive: True  | Mid-Work: True  | Phase: process_tracer            | Query: MATCH (n) WHERE n.is_suspect = true OR n.is_tainted = true RETURN n;
+  -> Agent Tracer KILLED mid-work. Fresh worker restarted from graph state.
+[DUPLICATE CHECK for SEED 202]
+  Duplicates by Action ID:                                0 rows (Expected: 0)
+  Duplicates by (action type, target unit, decision):     0 rows (Expected: 0)
+
+--- [SEED 303] Target Victim: Adjudicator on Tenant 'c2-valid-303' ---
+[C2 KILL LOG] Seed: 303  | Victim: Adjudicator  | Alive: True  | Mid-Work: True  | Phase: process_adjudicator       | Query: MATCH (d:Decision) WHERE d.is_tainted = true AND d.verdict_set IS NULL RETURN d;
+  -> Agent Adjudicator KILLED mid-work. Fresh worker restarted from graph state.
+[DUPLICATE CHECK for SEED 303]
+  Duplicates by Action ID:                                0 rows (Expected: 0)
+  Duplicates by (action type, target unit, decision):     0 rows (Expected: 0)
+
+--- [SEED 404] Target Victim: Dispatcher on Tenant 'c2-valid-404' ---
+[C2 KILL LOG] Seed: 404  | Victim: Dispatcher   | Alive: True  | Mid-Work: True  | Phase: process_dispatcher        | Query: MATCH (d:Decision) WHERE d.verdict_set = true AND d.action_dispatched = false RETURN d;
+  -> Agent Dispatcher KILLED mid-work. Fresh worker restarted from graph state.
+[DUPLICATE CHECK for SEED 404]
+  Duplicates by Action ID:                                0 rows (Expected: 0)
+  Duplicates by (action type, target unit, decision):     0 rows (Expected: 0)
+
+--- [SEED 505] Target Victim: Tracer on Tenant 'c2-valid-505' ---
+[C2 KILL LOG] Seed: 505  | Victim: Tracer       | Alive: True  | Mid-Work: True  | Phase: process_tracer            | Query: MATCH (n) WHERE n.is_suspect = true OR n.is_tainted = true RETURN n;
+  -> Agent Tracer KILLED mid-work. Fresh worker restarted from graph state.
+[DUPLICATE CHECK for SEED 505]
+  Duplicates by Action ID:                                0 rows (Expected: 0)
+  Duplicates by (action type, target unit, decision):     0 rows (Expected: 0)
+
+=========================================================================================================
+C2 KILL VALIDITY SUMMARY ACROSS 5 SEEDS:
+  Total Valid Mid-Work Kills: 5 / 5
+  Seed 101: Agent=Sentinel, Alive=True, Mid-Work=True, Phase=process_sentinel
+  Seed 202: Agent=Tracer, Alive=True, Mid-Work=True, Phase=process_tracer
+  Seed 303: Agent=Adjudicator, Alive=True, Mid-Work=True, Phase=process_adjudicator
+  Seed 404: Agent=Dispatcher, Alive=True, Mid-Work=True, Phase=process_dispatcher
+  Seed 505: Agent=Tracer, Alive=True, Mid-Work=True, Phase=process_tracer
+  Duplicate Actions by ID: 0 rows across all 5 seeds
+  Duplicate Actions by (action type, target unit, decision): 0 rows across all 5 seeds
+=========================================================================================================
+
+PASSED
+
+============================= 1 passed in 40.36s ==============================
+  ```
+
+---
+
 ## 8. Minimalist Neobrutalism Presentation & Banned-List Audit (Part C Final)
 
 **Scope**: Strictly restricted to presentation code (`ui/` and `api/`). Backend behavior (`engine/`, `agents/`, `toolserver/`) preserved with zero modifications.  

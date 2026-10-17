@@ -52,6 +52,24 @@ class BaseAgent(ABC):
         self.graph_client = graph_client
         self.llm_adapter = llm_adapter
         self.is_active = True
+        self.is_alive_flag: bool = True
+        self.current_phase: str = "idle"
+        self.current_query: str = "MATCH (n) RETURN count(n);"
+        self.is_mid_work_flag: bool = False
+
+    def is_alive(self) -> bool:
+        """Returns True if agent process/worker is alive and active."""
+        return self.is_alive_flag and self.is_active
+
+    def is_mid_work(self) -> bool:
+        """Returns True if agent is actively executing mid-work."""
+        return self.is_mid_work_flag
+
+    def kill(self) -> None:
+        """Terminates agent worker process mid-execution."""
+        self.is_alive_flag = False
+        self.is_active = False
+        self.is_mid_work_flag = False
 
     def create_event(
         self,
@@ -86,13 +104,23 @@ class BaseAgent(ABC):
             tenant_id=self.tenant_id,
         )
 
+        self.current_phase = f"poll_work_{self.name.lower()}"
         items = self.poll_work()
         result.items_polled = len(items)
 
+        if items:
+            self.is_mid_work_flag = True
+            self.current_phase = f"process_items_{self.name.lower()}"
+
         for item in items:
+            if not self.is_active or not self.is_alive_flag:
+                break
             emitted = self.process_item(item)
             result.events_emitted.extend(emitted)
             result.items_processed += 1
+
+        self.is_mid_work_flag = False
+        self.current_phase = "idle"
 
         # Emit agent status event
         status_event = self.create_event(

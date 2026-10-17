@@ -56,7 +56,10 @@ class AdjudicatorAgent(BaseAgent):
 
     def poll_work(self) -> List[WorkItem]:
         """Poll graph for Decision nodes that are tainted/impacted but not yet adjudicated."""
+        self.current_phase = "adjudicator_poll_decisions"
+        self.current_query = "MATCH (d:Decision) WHERE d.is_tainted = true AND d.verdict_set IS NULL RETURN d;"
         work_items: List[WorkItem] = []
+
         if not hasattr(self.graph_client, "nodes"):
             return work_items
 
@@ -79,6 +82,8 @@ class AdjudicatorAgent(BaseAgent):
     def process_item(self, item: WorkItem) -> List[EventEnvelope]:
         """Evaluate declared policy for a Decision node strictly via Cypher/support query."""
         decision_id = item.entity_id
+        self.current_phase = "adjudicator_evaluate_policy"
+        self.current_query = f"MATCH (d:Decision {{id: '{decision_id}'}})<-[r:SUPPORT]-(ev:Evidence) RETURN count(ev);"
 
         # Query support evaluation from QueryAPI
         support_res = self.graph_client.support(decision_id)

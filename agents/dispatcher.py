@@ -35,6 +35,8 @@ class DispatcherAgent(BaseAgent):
 
     def poll_work(self) -> List[WorkItem]:
         """Poll graph for adjudicated Decision nodes that have not yet had actions dispatched."""
+        self.current_phase = "dispatcher_poll_units"
+        self.current_query = "MATCH (d:Decision) WHERE d.verdict_set = true AND d.action_dispatched = false RETURN d;"
         work_items: List[WorkItem] = []
         if not hasattr(self.graph_client, "nodes"):
             return work_items
@@ -56,10 +58,12 @@ class DispatcherAgent(BaseAgent):
 
     def process_item(self, item: WorkItem) -> List[EventEnvelope]:
         """Create Action nodes in graph with stored causal paths and emit SSE events."""
-        emitted_events: List[EventEnvelope] = []
         decision_id = item.entity_id
         decision_props = item.properties
         verdict = decision_props.get("verdict", "tainted")
+        self.current_phase = "dispatcher_atomic_action_dispatch"
+        self.current_query = f"atomic_hold_and_notice(decision_id='{decision_id}', verdict='{verdict}');"
+        emitted_events: List[EventEnvelope] = []
 
         # Causal path of decision
         causal_path = decision_props.get("taint_via_path")

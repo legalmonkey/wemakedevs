@@ -47,6 +47,8 @@ class TracerAgent(BaseAgent):
 
     def poll_work(self) -> List[WorkItem]:
         """Poll graph for nodes that are suspect or tainted and have untainted downstream neighbors."""
+        self.current_phase = "tracer_taint_poll"
+        self.current_query = "MATCH (n) WHERE n.is_suspect = true OR n.is_tainted = true RETURN n;"
         work_items: List[WorkItem] = []
         if not hasattr(self.graph_client, "nodes") or not hasattr(self.graph_client, "edges"):
             return work_items
@@ -129,6 +131,7 @@ class TracerAgent(BaseAgent):
 
     def process_item(self, item: WorkItem) -> List[EventEnvelope]:
         """Advance taint by one hop to untraced targets, writing TAINTS edges."""
+        self.current_phase = "tracer_propagate_taint"
         emitted_events: List[EventEnvelope] = []
         source_id = item.entity_id
         current_hops = item.properties.get("hops", 0)
@@ -136,6 +139,7 @@ class TracerAgent(BaseAgent):
         untraced_targets = item.properties.get("untraced_targets", [])
 
         for target_id in untraced_targets:
+            self.current_query = f"MATCH (a {{id: '{source_id}'}}), (b {{id: '{target_id}'}}) MERGE (a)-[r:TAINTS]->(b);"
             # Double check to prevent race conditions or duplicate hops
             if self._is_already_tainted(target_id):
                 continue
