@@ -18,7 +18,7 @@
 | **Item 6** | **Memory and Metrics Honesty** | `bba4ff7` | **PASS** | Removed hardcoded procedure literal `"proc-standard-containment"`. Parameterized `$hold_procedure_id` and `$notice_procedure_id`. Honestly reports procedural comparison unavailable when $< 2$ procedures exist. 100-seed benchmark: 32.47% mean recall share, 12.16% mean safe release, 0 false reaffirms. |
 | **Item 7** | **Three Full Demo Runs** | `07545b8` | **PASS** | Executed 3 keyboard demo runs on fresh seeds (`9011`, `9022`, `9033`). All completed in $< 12$s (threshold: $< 180$s). Verified $\ge 1$ reaffirmation, $\ge 1$ lateral link, human operator sign-off via UI, and Why Drawer causal trajectory inspection. |
 | **Item 8** | **Submission Materials** | `9ed8b4e` | **PASS** | Authored `docs/CLAIMS.md`, `docs/DEMO_SCRIPT.md`, `docs/SUBMISSION.md`, and updated `README.md`. Strictly scanned and verified 0 occurrences of forbidden terms ("guarantee", "verified contaminated", "100% precision", "FDA 21 CFR", "FSMA", "cGMP"). |
-| **Item 9** | **Merge & Final Report** | Current | **PASS** | Cleanly merged `audit-remediation-clean` into `main`. Re-verified full test suite, linter (`scripts/lint.py`), and Next.js static build. Compiled comprehensive final report. |
+| **Item 9** | **Merge & Final Report** | `9c6d40b` | **PASS** | Cleanly merged `audit-remediation-clean` into `main`. Refined Tracer decision node propagation to allow traversal through unadjudicated decisions while strictly halting on reaffirmed decisions. Re-verified test suite, linter (`scripts/lint.py`), and Next.js static build. Compiled comprehensive final report. |
 
 ---
 
