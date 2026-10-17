@@ -424,38 +424,82 @@ export default function ForensicDossier() {
     }
   };
 
-  // STYLED FORCE LAYOUT SIMULATION (Pure TypeScript, zero external dependencies)
-  // Computes repulsive, attractive, and collision forces in discrete steps
-  const nodePositions = useMemo(() => {
-    if (nodes.length === 0) return {};
+  const [canvasFilter, setCanvasFilter] = useState<"active" | "all">("active");
 
-    const width = 840;
-    const height = 520;
+  // Filter nodes for active incident perimeter vs all facility nodes
+  const displayedNodes = useMemo(() => {
+    if (canvasFilter === "all" || nodes.length <= 30) return nodes;
+
+    const incidentIds = new Set<string>();
+    nodes.forEach((n) => {
+      const s = (n.status || "").toLowerCase();
+      const stamp = (n.stamp_text || "").toUpperCase();
+      const ink = (n.ink_token || "").toLowerCase();
+      if (
+        s.includes("taint") ||
+        s.includes("reaffirm") ||
+        s.includes("suspect") ||
+        s.includes("unverifiable") ||
+        stamp === "HOLD" ||
+        stamp === "REAFFIRMED" ||
+        stamp === "SUSPECT" ||
+        stamp === "ESCALATED" ||
+        ink === "tainted" ||
+        ink === "reaffirmed" ||
+        ink === "suspect" ||
+        n.role.toLowerCase() === "action" ||
+        n.role.toLowerCase() === "event"
+      ) {
+        incidentIds.add(n.id);
+      }
+    });
+
+    edges.forEach((e) => {
+      if (e.is_taint || e.is_lateral) {
+        incidentIds.add(e.source_id);
+        incidentIds.add(e.target_id);
+      }
+    });
+
+    if (incidentIds.size === 0) return nodes.slice(0, 30);
+    return nodes.filter((n) => incidentIds.has(n.id));
+  }, [nodes, edges, canvasFilter]);
+
+  const displayedEdges = useMemo(() => {
+    const nodeSet = new Set(displayedNodes.map((n) => n.id));
+    return edges.filter((e) => nodeSet.has(e.source_id) && nodeSet.has(e.target_id));
+  }, [edges, displayedNodes]);
+
+  // STYLED FORCE LAYOUT SIMULATION (Pure TypeScript, discrete steps, zero external dependencies)
+  const nodePositions = useMemo(() => {
+    if (displayedNodes.length === 0) return {};
+
+    const width = 1180;
+    const height = 640;
     const centerX = width / 2;
     const centerY = height / 2;
 
-    // Initial positioning seeded by role bands
     const roleBands: Record<string, number> = {
-      event: 80,
-      evidence: 180,
-      decision: 340,
-      unit: 500,
-      shipment: 650,
-      recipient: 760,
-      action: 760,
+      event: 110,
+      evidence: 270,
+      decision: 480,
+      unit: 710,
+      shipment: 920,
+      recipient: 1070,
+      action: 1070,
     };
 
     const posMap: Record<string, NodePosition> = {};
     const roleCounts: Record<string, number> = {};
 
-    nodes.forEach((node) => {
+    displayedNodes.forEach((node) => {
       const roleKey = node.role.toLowerCase();
       const bandX = roleBands[roleKey] || centerX;
       const count = roleCounts[roleKey] || 0;
       roleCounts[roleKey] = count + 1;
 
-      // Seed positions deterministically
-      const yOffset = 70 + (count * 48) % (height - 120);
+      const spacing = Math.max(54, Math.floor(520 / (roleCounts[roleKey] + 1)));
+      const yOffset = 70 + (count * spacing) % (height - 130);
       posMap[node.id] = {
         x: bandX,
         y: yOffset,
@@ -464,14 +508,12 @@ export default function ForensicDossier() {
       };
     });
 
-    // Run 50 discrete iterations of force simulation
-    const iterations = 50;
-    const kRepel = 2400;
-    const kAttract = 0.04;
-    const damping = 0.82;
+    const iterations = 60;
+    const kRepel = 3200;
+    const kAttract = 0.05;
+    const damping = 0.85;
 
     for (let iter = 0; iter < iterations; iter++) {
-      // 1. Repulsion between all node pairs
       const nodeIds = Object.keys(posMap);
       for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
@@ -483,7 +525,8 @@ export default function ForensicDossier() {
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          if (dist < 120) {
+
+          if (dist < 140) {
             const force = kRepel / (dist * dist);
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
@@ -492,18 +535,24 @@ export default function ForensicDossier() {
             b.vx += fx;
             b.vy += fy;
           }
+
+          // Strict collision prevention: push overlapping rectangles apart
+          if (Math.abs(dx) < 86 && Math.abs(dy) < 52) {
+            const overlapY = (52 - Math.abs(dy)) * (dy >= 0 ? 1 : -1);
+            a.vy -= overlapY * 0.4;
+            b.vy += overlapY * 0.4;
+          }
         }
       }
 
-      // 2. Attraction along connected edges
-      edges.forEach((edge) => {
+      displayedEdges.forEach((edge) => {
         const src = posMap[edge.source_id];
         const dst = posMap[edge.target_id];
         if (src && dst) {
           const dx = dst.x - src.x;
           const dy = dst.y - src.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = (dist - 90) * kAttract;
+          const force = (dist - 110) * kAttract;
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
           src.vx += fx * 0.5;
@@ -513,31 +562,27 @@ export default function ForensicDossier() {
         }
       });
 
-      // 3. Band anchoring & boundary constraints
       nodeIds.forEach((id) => {
         const p = posMap[id];
-        const node = nodes.find((n) => n.id === id);
+        const node = displayedNodes.find((n) => n.id === id);
         const roleKey = node ? node.role.toLowerCase() : "unit";
         const targetX = roleBands[roleKey] || centerX;
 
-        // Mild spring toward role column
         p.vx += (targetX - p.x) * 0.08;
         p.vy += (centerY - p.y) * 0.01;
 
-        // Apply velocities with damping
         p.x += p.vx * damping;
         p.y += p.vy * damping;
         p.vx *= 0.6;
         p.vy *= 0.6;
 
-        // Constrain strictly within SVG boundary
-        p.x = Math.max(50, Math.min(width - 50, p.x));
-        p.y = Math.max(40, Math.min(height - 40, p.y));
+        p.x = Math.max(60, Math.min(width - 60, p.x));
+        p.y = Math.max(50, Math.min(height - 50, p.y));
       });
     }
 
     return posMap;
-  }, [nodes, edges]);
+  }, [displayedNodes, displayedEdges]);
 
   // Compute 4 dynamic counts
   const counts = useMemo(() => {
@@ -1011,8 +1056,27 @@ export default function ForensicDossier() {
                 {registry?.vocabulary?.evidence_board_title || "Forensic Evidence Canvas"} · Active
                 Tenant: {stats ? `tenant-seed-${activeSeed}` : "tenant-alpha"}
               </div>
-              <div className="font-mono" style={{ fontSize: "11px", color: "var(--ink-muted)" }}>
-                Click any node to inspect Why trajectory in &le; 2 steps
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <button
+                  onClick={() => setCanvasFilter((prev) => (prev === "active" ? "all" : "active"))}
+                  className="font-mono border-neo touch-target-44"
+                  style={{
+                    padding: "4px 12px",
+                    backgroundColor: canvasFilter === "active" ? "var(--bg-paper)" : "var(--bg-paper-elevated)",
+                    color: "var(--ink-primary)",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: "11px",
+                    boxShadow: "var(--shadow-interactive)",
+                  }}
+                >
+                  {canvasFilter === "active"
+                    ? `PERIMETER FILTER: ON (${displayedNodes.length} NODES)`
+                    : `SHOWING ALL NODES (${nodes.length})`}
+                </button>
+                <div className="font-mono" style={{ fontSize: "11px", color: "var(--ink-muted)" }}>
+                  Click any node to inspect Why trajectory in &le; 2 steps
+                </div>
               </div>
             </div>
 
@@ -1032,7 +1096,7 @@ export default function ForensicDossier() {
                 justifyContent: "center",
               }}
             >
-              {nodes.length === 0 ? (
+              {displayedNodes.length === 0 ? (
                 /* Designed Empty State */
                 <div
                   style={{
@@ -1083,7 +1147,7 @@ export default function ForensicDossier() {
                 <svg
                   width="100%"
                   height="100%"
-                  viewBox="0 0 840 520"
+                  viewBox="0 0 1180 640"
                   preserveAspectRatio="xMidYMid meet"
                   style={{
                     width: "100%",
@@ -1119,7 +1183,7 @@ export default function ForensicDossier() {
                   </defs>
 
                   {/* Render Force Layout Edges */}
-                  {edges.map((edge, idx) => {
+                  {displayedEdges.map((edge, idx) => {
                     const src = nodePositions[edge.source_id];
                     const dst = nodePositions[edge.target_id];
                     if (!src || !dst) return null;
@@ -1186,7 +1250,7 @@ export default function ForensicDossier() {
                   })}
 
                   {/* Render Force Layout Nodes */}
-                  {nodes.map((node) => {
+                  {displayedNodes.map((node) => {
                     const pos = nodePositions[node.id];
                     if (!pos) return null;
 
@@ -1223,12 +1287,23 @@ export default function ForensicDossier() {
                         }}
                         style={{ cursor: "pointer", outline: "none" }}
                       >
-                        {/* Node Box (Strict Neobrutal Square Corners) */}
+                        {/* Vector Hard Offset Shadow for Interactive/Selected (Zero Blur) */}
+                        {(isSelected || isWhyPath) && (
+                          <rect
+                            x="-37"
+                            y="-21"
+                            width="80"
+                            height="46"
+                            fill="var(--ink-primary)"
+                          />
+                        )}
+
+                        {/* Node Card Box (Strict Neobrutal Square Corners) */}
                         <rect
-                          x="-38"
-                          y="-22"
-                          width="76"
-                          height="44"
+                          x="-40"
+                          y="-24"
+                          width="80"
+                          height="46"
                           fill={fillColor}
                           stroke={isWhyPath ? "var(--ink-primary)" : strokeColor}
                           strokeWidth={isSelected || isWhyPath ? 3 : 2}
@@ -1236,8 +1311,8 @@ export default function ForensicDossier() {
 
                         {/* Node Badge */}
                         <text
-                          x="-30"
-                          y="-9"
+                          x="-32"
+                          y="-10"
                           fill="var(--ink-muted)"
                           fontSize="9"
                           fontFamily="var(--font-mono)"
@@ -1246,7 +1321,7 @@ export default function ForensicDossier() {
                           {node.badge}
                         </text>
 
-                        {/* Truncated ID Label */}
+                        {/* Entity ID Label */}
                         <text
                           x="0"
                           y="6"
@@ -1256,17 +1331,26 @@ export default function ForensicDossier() {
                           textAnchor="middle"
                           fontWeight="600"
                         >
-                          {node.id.length > 10 ? `${node.id.slice(0, 9)}…` : node.id}
+                          {node.id.length > 11 ? `${node.id.slice(0, 10)}…` : node.id}
                         </text>
 
                         {/* Neobrutalist Stamp Tag */}
                         {node.stamp_text && (
-                          <g transform="translate(0, 28)">
+                          <g transform="translate(0, 30)">
+                            {(isSelected || isWhyPath) && (
+                              <rect
+                                x="-33"
+                                y="-7"
+                                width="68"
+                                height="18"
+                                fill="var(--ink-primary)"
+                              />
+                            )}
                             <rect
-                              x="-32"
-                              y="-8"
-                              width="64"
-                              height="16"
+                              x="-35"
+                              y="-9"
+                              width="68"
+                              height="18"
                               fill="var(--bg-paper)"
                               stroke={strokeColor}
                               strokeWidth="2"
@@ -1278,6 +1362,7 @@ export default function ForensicDossier() {
                               fontSize="9"
                               fontFamily="var(--font-mono)"
                               fontWeight="700"
+                              letterSpacing="0.08em"
                               textAnchor="middle"
                             >
                               {node.stamp_text}
