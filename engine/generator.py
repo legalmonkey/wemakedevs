@@ -18,8 +18,8 @@ Strict adherence to Section 0 rules:
 from __future__ import annotations
 import random
 import hashlib
-from typing import Any, Dict, List, Optional, Tuple
 from contracts.ontology import NodeRole, EdgeRole
+from engine.ontology_utils import get_lateral_edge_spec
 
 
 def _generate_id(seed: int, kind: str, index: int) -> str:
@@ -98,10 +98,10 @@ class FoodGraphGenerator:
             raw_lot_ids.append(lot_id)
 
         # 2. Generate Evidence Readings / Lab Tests (Evidence)
-        # Includes orphan-result faults (unverifiable=True, valid=False) to trigger unverifiable status
+        # Includes orphan-record faults (unverifiable=True, valid=False) declared in scenario fault parameters
         num_evidence = max(24, self.num_decisions * 2)
         test_ids: List[str] = []
-        orphan_indices = set(self.rng.sample(range(num_evidence), k=min(3, max(1, num_evidence // 10))))
+        orphan_indices = set(self.rng.sample([idx for idx in range(num_evidence) if idx % 2 == 1], k=3))
 
         for i in range(num_evidence):
             kind = "SensorLog" if (i % 2 == 0) else "LabTest"
@@ -140,24 +140,37 @@ class FoodGraphGenerator:
                     "status": "released",
                     "product_family": family,
                     "batch_number": 1000 + i,
-                    # Demand (2): Naive-recall rule selects a strict subset on seeds
-                    # Stride and offset based on seed ensures count of batches touching sensor varies per seed
+                    # Naive-recall rule: all batches touched by temperature sensor
                     "instruments_touched": ["temperature_telemetry_sensor"] if ((i + (self.seed % 7)) % (3 + (self.seed % 3)) != 0) else ["pathogen_rapid_assay"],
                 },
             )
             batch_ids.append(batch_id)
 
         # Link batches to raw lots (DERIVES_FROM) and establish lateral links
-        # Derivation branching varies by seed: each batch derives from 1 or 2 raw lots
         lot_to_batches: Dict[str, List[str]] = {lid: [] for lid in raw_lot_ids}
+        target_lateral_unit = batch_ids[7 % len(batch_ids)]
         for i, bid in enumerate(batch_ids):
-            num_parents = 2 if ((self.seed + i) % 5 == 0 and len(raw_lot_ids) > 1) else 1
-            assigned_lots = [raw_lot_ids[(self.seed + i + offset) % len(raw_lot_ids)] for offset in range(num_parents)]
+            if i == 0 or i == 7:
+                assigned_lots = [raw_lot_ids[0]]
+            else:
+                num_parents = 2 if ((self.seed + i) % 5 == 0 and len(raw_lot_ids) > 1) else 1
+                assigned_lots = [raw_lot_ids[(self.seed + i + offset) % len(raw_lot_ids)] for offset in range(num_parents)]
             for assigned_lot in assigned_lots:
                 lot_to_batches[assigned_lot].append(bid)
-                add_edge(bid, assigned_lot, "DERIVES_FROM", EdgeRole.DERIVES_FROM)
+        # Dynamic lateral edge specification from ontology.yaml
+        lateral_kind, lateral_role_str = get_lateral_edge_spec()
+        lateral_role = EdgeRole(lateral_role_str)
 
-        # Batches sharing the same raw lot have SHARED_LOT (LATERAL_LINK) relationships
+        # Direct lateral link between contaminated unit and target lateral unit
+        add_edge(
+            batch_ids[0],
+            target_lateral_unit,
+            lateral_kind,
+            lateral_role,
+            {"reason": "shared_ingredient_lot", "shared_lot_id": raw_lot_ids[0]},
+        )
+
+        # Batches sharing the same raw lot have lateral relationships
         # Directed acyclic order (earlier index -> later index) ensures 0 cycles!
         for lid, b_list in lot_to_batches.items():
             if len(b_list) > 1:
@@ -165,14 +178,12 @@ class FoodGraphGenerator:
                     add_edge(
                         b_list[idx],
                         b_list[idx + 1],
-                        "SHARED_LOT",
-                        EdgeRole.LATERAL_LINK,
+                        lateral_kind,
+                        lateral_role,
                         {"reason": "shared_ingredient_lot", "shared_lot_id": lid},
                     )
 
         # 4. Generate Quality Decisions (Decision)
-        # Pure DAG: (Evidence) -[:SUPPORTS]-> (Decision) -[:SUPPORT]-> (Unit)
-        # ZERO cyclic edges!
         decision_ids: List[str] = []
         for i in range(self.num_decisions):
             decision_id = _generate_id(self.seed, "QualityDecision", i)
@@ -187,20 +198,48 @@ class FoodGraphGenerator:
             )
             decision_ids.append(decision_id)
 
-            # Connect decision to governed unit(s) - strictly forward (Decision -> Unit)
+            # Connect decision to governed unit strictly forward (Decision -> Unit)
             unit_for_decision = batch_ids[i % len(batch_ids)]
             add_edge(decision_id, unit_for_decision, "SUPPORT", EdgeRole.SUPPORT)
 
-            # Assign evidence support edges from test_ids with variable group counts per seed:
-            num_evidence_links = 1 + ((self.seed + i * 3) % 4) # 1 to 4 supports
+        # Demand 1: Wiring evidence to decisions so each seed yields >= 3 tainted, >= 3 reaffirmed, >= 1 unverifiable
+        sensors = [tid for tid in test_ids if "sensorlog" in tid.lower()]
+        valid_lab_tests = [tid for idx, tid in enumerate(test_ids) if idx % 2 == 1 and idx not in orphan_indices]
+        orphan_tests = [test_ids[idx] for idx in sorted(orphan_indices)]
+
+        # Decisions 0, 1, 2: Supported by drifted sensors without independent valid groups -> TAINTED (>= 3)
+        for i in range(3):
+            add_edge(sensors[i % len(sensors)], decision_ids[i], "SUPPORTS", EdgeRole.SUPPORT)
+
+        # Decisions 3, 4, 5: Supported by drifted sensors AND >= 2 independent valid groups -> REAFFIRMED (>= 3)
+        for i in range(3):
+            d_idx = 3 + i
+            add_edge(sensors[(i + 3) % len(sensors)], decision_ids[d_idx], "SUPPORTS", EdgeRole.SUPPORT)
+            lab1 = valid_lab_tests[(i * 2) % len(valid_lab_tests)]
+            lab2 = valid_lab_tests[(i * 2 + 1) % len(valid_lab_tests)]
+            add_edge(lab1, decision_ids[d_idx], "SUPPORTS", EdgeRole.SUPPORT)
+            add_edge(lab2, decision_ids[d_idx], "SUPPORTS", EdgeRole.SUPPORT)
+
+        # Decision 6: Supported by drifted sensor AND orphan unlinked reading -> UNVERIFIABLE (>= 1)
+        add_edge(sensors[0], decision_ids[6], "SUPPORTS", EdgeRole.SUPPORT)
+        add_edge(orphan_tests[0], decision_ids[6], "SUPPORTS", EdgeRole.SUPPORT)
+
+        # Decision 7 governs target_lateral_unit (batch_ids[7]). It must NOT be directly tainted by drifted sensors
+        # so target_lateral_unit is ONLY contaminated laterally via declared lateral links (Demand 1 Ground Truth)
+        add_edge(valid_lab_tests[0], decision_ids[7], "SUPPORTS", EdgeRole.SUPPORT)
+        add_edge(valid_lab_tests[1], decision_ids[7], "SUPPORTS", EdgeRole.SUPPORT)
+
+        # Decisions 8 to 14: Dynamic seed-dependent wiring for randomized variance across seeds
+        for i in range(8, self.num_decisions):
+            num_links = 1 + ((self.seed + i * 3) % 4)
             chosen_tests = [
                 test_ids[(self.seed * 7 + i * 5 + g) % len(test_ids)]
-                for g in range(num_evidence_links)
+                for g in range(num_links)
             ]
             for t_id in set(chosen_tests):
-                add_edge(t_id, decision_id, "SUPPORTS", EdgeRole.SUPPORT)
+                add_edge(t_id, decision_ids[i], "SUPPORTS", EdgeRole.SUPPORT)
 
-        # 5. Generate Dispatch Shipments (Shipment) for a subset of units (~60% shipped, ~40% unshipped)
+        # 5. Generate Dispatch Shipments (Shipment)
         shipment_ids: List[str] = []
         recipient_ids: List[str] = []
         num_shipments = max(10, (self.num_units * 3) // 5)
@@ -217,8 +256,7 @@ class FoodGraphGenerator:
             shipment_ids.append(shipment_id)
             add_edge(shipped_batch, shipment_id, "SHIPS_IN", EdgeRole.SHIPS_IN)
 
-            # 6. Generate Customer Recipients (Recipient)
-            # Pre-create Recipient node BEFORE any DELIVERED_TO edge
+            # 6. Customer Recipients (Pre-created before DELIVERED_TO edge)
             recipient_id = _generate_id(self.seed, "CustomerAccount", i)
             add_node(
                 node_id=recipient_id,
@@ -227,9 +265,32 @@ class FoodGraphGenerator:
                 properties={"tier": "commercial", "account_ref": f"ACC-{self.seed}-{i}"},
             )
             recipient_ids.append(recipient_id)
-
-            # Add DELIVERED_TO edge
             add_edge(shipment_id, recipient_id, "DELIVERED_TO", EdgeRole.DELIVERED_TO)
+
+        # Demand 6: Batch write all nodes and edges using Cypher UNWIND if client provided
+        if graph_client is not None:
+            if hasattr(graph_client, "batch_add_nodes"):
+                graph_client.batch_add_nodes(list(nodes.values()))
+            else:
+                for nd in nodes.values():
+                    graph_client.add_node(nd["id"], nd["kind"], nd["role"], nd["properties"])
+
+            if hasattr(graph_client, "batch_add_edges"):
+                graph_client.batch_add_edges(edges)
+            else:
+                for ed in edges:
+                    graph_client.add_edge(ed["source_id"], ed["target_id"], ed["kind"], ed["role"], ed["properties"])
+
+        lateral_fault = {
+            "source_unit_id": batch_ids[0],
+            "target_lateral_unit_id": target_lateral_unit,
+            "shared_lot_id": raw_lot_ids[0],
+            "edge_type": lateral_kind,
+        }
+        if graph_client is not None:
+            if not hasattr(graph_client, "recorded_faults") or graph_client.recorded_faults is None:
+                graph_client.recorded_faults = {}
+            graph_client.recorded_faults["lateral_fault"] = lateral_fault
 
         return {
             "seed": self.seed,
@@ -242,4 +303,6 @@ class FoodGraphGenerator:
             "shipments": shipment_ids,
             "recipients": recipient_ids,
             "product_families": family_names,
+            "recorded_lateral_fault": lateral_fault,
         }
+

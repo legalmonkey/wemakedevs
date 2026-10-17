@@ -101,8 +101,15 @@ class EvaluationReport(BaseModel):
 class EvaluationHarness:
     """Runs automated benchmarking across N randomized incidents."""
 
-    def __init__(self, base_seed: int = 1000) -> None:
+    def __init__(
+        self,
+        base_seed: int = 1000,
+        scenario_path: Optional[str | Path] = None,
+        allow_lateral: bool = True,
+    ) -> None:
         self.base_seed = base_seed
+        self.scenario_path = scenario_path
+        self.allow_lateral = allow_lateral
 
     def run_benchmark(self, num_incidents: int = 10) -> EvaluationReport:
         """Executes num_incidents randomized runs and computes aggregate metrics."""
@@ -127,22 +134,17 @@ class EvaluationHarness:
             generator = FoodGraphGenerator(seed=seed)
             gen_data = generator.generate(graph_client=client)
 
-            # 2. Inject fault event
-            scenario_spec = {
-                "fault": {
-                    "target_role": "Evidence",
-                    "target_kind": "SensorLog",
-                    "reason": f"Evaluator benchmark calibration drift (seed {seed})",
-                }
-            }
-            injector = FaultInjector(scenario_spec, seed=seed)
+            # 2. Inject fault event from declared scenario parameters
+            scen_path = self.scenario_path or (Path(__file__).resolve().parent.parent / "scenarios" / "scenario_calibration_drift.yaml")
+            injector = FaultInjector.from_file(scen_path, seed=seed)
             injector.inject(client)
+
 
             # 3. Time multi-agent containment cycle
             t0 = time.perf_counter()
             loop = EventLoop(tenant_id=f"tenant-bench-{seed}")
             sentinel = SentinelAgent(client.tenant_id, client)
-            tracer = TracerAgent(client.tenant_id, client)
+            tracer = TracerAgent(client.tenant_id, client, allow_lateral=self.allow_lateral)
             adjudicator = AdjudicatorAgent(client.tenant_id, client)
             dispatcher = DispatcherAgent(client.tenant_id, client)
             memory = ProceduralMemory(client.tenant_id, client)
@@ -203,25 +205,47 @@ class EvaluationHarness:
                     if valid_groups < min_req:
                         false_reaffirms += 1
 
-            # Demand (1): Evaluate lateral link recall on every seed that injects a lateral link
-            lateral_edges = [e for e in client.edges if e.role == EdgeRole.LATERAL_LINK]
-            tainted_unit_ids = {u.node_id for u in units if u.properties.get("is_tainted", False)}
+            # Demand 1: Define hidden-link recall as "the injector's recorded lateral target received a TAINTS edge whose via_path contains the lateral edge or shared-lot node"
+            # Ground truth taken from injector's recorded faults, NOT arbitrary graph edges
+            recorded_faults = getattr(injector, "recorded_faults", {}) or getattr(client, "recorded_faults", {})
+            lateral_fault = recorded_faults.get("lateral_fault")
 
-            # A lateral link is injected into the contamination path if at least one endpoint was tainted
-            injected_lateral_edges = [
-                e for e in lateral_edges
-                if (e.source_id in tainted_unit_ids or e.target_id in tainted_unit_ids)
-            ]
-
-            if injected_lateral_edges:
+            if lateral_fault and "target_lateral_unit_id" in lateral_fault:
                 lateral_injected = True
                 lateral_not_injected = False
-                # Both endpoints must be tainted for full recall
-                all_recalled = all(
-                    (e.source_id in tainted_unit_ids and e.target_id in tainted_unit_ids)
-                    for e in injected_lateral_edges
-                )
-                if all_recalled:
+                target_lat_id = lateral_fault["target_lateral_unit_id"]
+                shared_lot_id = lateral_fault.get("shared_lot_id", "")
+                from engine.ontology_utils import get_lateral_edge_spec
+                lat_kind, lat_role_val = get_lateral_edge_spec()
+
+                # Find all incoming TAINTS edges for this recorded lateral target
+                if hasattr(client, "get_incoming_edges"):
+                    incoming_taints = client.get_incoming_edges(target_lat_id, role=EdgeRole.TAINTS)
+                else:
+                    incoming_taints = [e for e in client.edges if e.target_id == target_lat_id and (e.role == EdgeRole.TAINTS or e.kind == "TAINTS")]
+
+                # Check if any TAINTS edge via_path contains the lateral edge or shared-lot node
+                has_valid_lateral_taint = False
+                for te in incoming_taints:
+                    vpath = te.properties.get("via_path", [])
+                    if not vpath:
+                        continue
+                    if shared_lot_id and shared_lot_id in vpath:
+                        has_valid_lateral_taint = True
+                        break
+                    if len(vpath) >= 2 and vpath[-1] == target_lat_id:
+                        pred_id = vpath[-2]
+                        out_e = client.get_outgoing_edges(pred_id) if hasattr(client, "get_outgoing_edges") else []
+                        in_e = client.get_incoming_edges(pred_id) if hasattr(client, "get_incoming_edges") else []
+                        for e in (out_e + in_e):
+                            e_role_str = e.role.value if hasattr(e.role, 'value') else str(e.role)
+                            if (e.target_id == target_lat_id or e.source_id == target_lat_id) and (e_role_str == lat_role_val or e.kind == lat_kind):
+                                has_valid_lateral_taint = True
+                                break
+                        if has_valid_lateral_taint:
+                            break
+
+                if has_valid_lateral_taint:
                     lateral_recalled = True
                     lateral_missed = False
                 else:
@@ -232,6 +256,7 @@ class EvaluationHarness:
                 lateral_not_injected = True
                 lateral_recalled = False
                 lateral_missed = False
+
 
             # Explanation coverage: Action nodes with non-empty causal path
             explained_actions = sum(1 for a in actions if len(a.properties.get("causal_path", [])) > 0)

@@ -25,17 +25,24 @@ class TracerAgent(BaseAgent):
         tenant_id: str,
         graph_client: Any,
         name: str = "Tracer",
+        allow_lateral: bool = True,
     ):
         super().__init__(name=name, tenant_id=tenant_id, graph_client=graph_client)
+        self.allow_lateral = allow_lateral
 
     def _is_already_tainted(self, node_id: str) -> bool:
         """Check if a node has already been tainted or is suspect evidence."""
         node = self.graph_client.get_node(node_id)
-        if node and node.properties.get("is_tainted", False):
+        if node and (node.properties.get("is_tainted", False) or node.properties.get("is_suspect", False)):
             return True
-        for edge in self.graph_client.edges:
-            if edge.target_id == node_id and edge.role == EdgeRole.TAINTS:
+        if hasattr(self.graph_client, "get_incoming_edges"):
+            in_edges = self.graph_client.get_incoming_edges(node_id, role=EdgeRole.TAINTS)
+            if in_edges:
                 return True
+        elif hasattr(self.graph_client, "edges"):
+            for edge in self.graph_client.edges:
+                if edge.target_id == node_id and edge.role == EdgeRole.TAINTS:
+                    return True
         return False
 
     def poll_work(self) -> List[WorkItem]:
@@ -49,45 +56,61 @@ class TracerAgent(BaseAgent):
             n for n in self.graph_client.nodes.values()
             if n.properties.get("is_suspect", False) or n.properties.get("is_tainted", False)
         ]
+        # Strict BFS ordering: lowest hops first, then deterministic node_id tie-breaker
+        active_nodes.sort(key=lambda n: (n.properties.get("taint_hops", 0), n.node_id))
 
         for node in active_nodes:
             curr_id = node.node_id
+            curr_hops = node.properties.get("taint_hops", 0)
+            curr_path = node.properties.get("taint_via_path") or [curr_id]
             out_edges = self.graph_client.get_outgoing_edges(curr_id)
             in_edges = self.graph_client.get_incoming_edges(curr_id)
 
+            # Deterministic edge sorting
+            out_edges.sort(key=lambda e: (e.role.value if hasattr(e.role, 'value') else str(e.role), e.target_id))
+            in_edges.sort(key=lambda e: (e.role.value if hasattr(e.role, 'value') else str(e.role), e.source_id))
+
+            # Prioritize direct forward supply chain edges before lateral links
+            prio = {EdgeRole.SUPPORT: 1, EdgeRole.SHIPS_IN: 2, EdgeRole.DELIVERED_TO: 3}
+            out_edges.sort(key=lambda e: (prio.get(e.role, 9), e.target_id))
+            in_edges.sort(key=lambda e: (1 if e.role == EdgeRole.DERIVES_FROM else 2, e.source_id))
+
             untraced_targets: List[str] = []
 
-            # 1. Forward domain edges:
-            # - SUPPORT: Evidence -> Decision, or Decision -> Unit
-            # - SHIPS_IN: Unit -> Shipment
-            # - DELIVERED_TO: Shipment -> Recipient
-            # - LATERAL_LINK: Unit -> Unit
+            # 1. Primary forward supply-chain edges (Evidence->Decision, Decision->Unit, Unit->Shipment, Shipment->Recipient)
             for edge in out_edges:
-                if edge.role in (EdgeRole.SUPPORT, EdgeRole.SHIPS_IN, EdgeRole.DELIVERED_TO, EdgeRole.LATERAL_LINK):
+                if edge.role in (EdgeRole.SUPPORT, EdgeRole.SHIPS_IN, EdgeRole.DELIVERED_TO):
                     if not self._is_already_tainted(edge.target_id):
                         if edge.target_id not in untraced_targets:
                             untraced_targets.append(edge.target_id)
 
-            # 2. Inward DERIVES_FROM edges:
-            # (derived_unit)-[:derives-from]->(source_lot)
-            # If curr_id is the source_lot (target of DERIVES_FROM), taint flows forward to derived_unit (source of edge)
+            # 2. Primary inward edges (DERIVES_FROM)
             for edge in in_edges:
                 if edge.role == EdgeRole.DERIVES_FROM:
                     derived_unit_id = edge.source_id
                     if not self._is_already_tainted(derived_unit_id):
                         if derived_unit_id not in untraced_targets:
                             untraced_targets.append(derived_unit_id)
-                elif edge.role == EdgeRole.LATERAL_LINK:
-                    lateral_unit_id = edge.source_id
-                    if not self._is_already_tainted(lateral_unit_id):
-                        if lateral_unit_id not in untraced_targets:
-                            untraced_targets.append(lateral_unit_id)
+
+            # 3. Secondary lateral crossover links (Unit<->Unit) resolved dynamically from ontology
+            if self.allow_lateral:
+                from engine.ontology_utils import get_lateral_edge_spec
+                lat_kind, lat_role_val = get_lateral_edge_spec()
+                for edge in out_edges:
+                    e_role_str = edge.role.value if hasattr(edge.role, 'value') else str(edge.role)
+                    if e_role_str == lat_role_val or edge.kind == lat_kind:
+                        if not self._is_already_tainted(edge.target_id):
+                            if edge.target_id not in untraced_targets:
+                                untraced_targets.append(edge.target_id)
+                for edge in in_edges:
+                    e_role_str = edge.role.value if hasattr(edge.role, 'value') else str(edge.role)
+                    if e_role_str == lat_role_val or edge.kind == lat_kind:
+                        lateral_unit_id = edge.source_id
+                        if not self._is_already_tainted(lateral_unit_id):
+                            if lateral_unit_id not in untraced_targets:
+                                untraced_targets.append(lateral_unit_id)
 
             if untraced_targets:
-                current_path = node.properties.get("taint_via_path")
-                if not current_path:
-                    current_path = [curr_id]
-
                 work_items.append(
                     WorkItem(
                         item_id=f"work-trace-{curr_id}",
@@ -96,8 +119,8 @@ class TracerAgent(BaseAgent):
                         properties={
                             "source_node_id": curr_id,
                             "untraced_targets": untraced_targets,
-                            "hops": node.properties.get("taint_hops", 0),
-                            "via_path": current_path,
+                            "hops": curr_hops,
+                            "via_path": curr_path,
                         },
                     )
                 )
@@ -121,7 +144,24 @@ class TracerAgent(BaseAgent):
             if not target_node:
                 continue
 
+            from engine.ontology_utils import get_lateral_edge_spec
+            lat_kind, lat_role_val = get_lateral_edge_spec()
+            is_lateral = False
+            if hasattr(self.graph_client, "get_outgoing_edges"):
+                for e in self.graph_client.get_outgoing_edges(source_id):
+                    e_role_str = e.role.value if hasattr(e.role, 'value') else str(e.role)
+                    if (e_role_str == lat_role_val or e.kind == lat_kind) and e.target_id == target_id:
+                        is_lateral = True
+                        break
+            if not is_lateral and hasattr(self.graph_client, "get_incoming_edges"):
+                for e in self.graph_client.get_incoming_edges(source_id):
+                    e_role_str = e.role.value if hasattr(e.role, 'value') else str(e.role)
+                    if (e_role_str == lat_role_val or e.kind == lat_kind) and e.source_id == target_id:
+                        is_lateral = True
+                        break
+
             new_hops = current_hops + 1
+            # Demand 2: Build via_path from the actual traversal result
             new_path = list(current_path) + [target_id]
 
             # Write TAINTS edge to graph with required hops and via_path properties
@@ -152,15 +192,6 @@ class TracerAgent(BaseAgent):
                         "taint_source": source_id,
                     },
                 )
-
-            # Check if this hop crossed a lateral link edge
-            is_lateral = False
-            if hasattr(self.graph_client, "edges"):
-                for e in self.graph_client.edges:
-                    if e.role == EdgeRole.LATERAL_LINK:
-                        if (e.source_id == source_id and e.target_id == target_id) or (e.source_id == target_id and e.target_id == source_id):
-                            is_lateral = True
-                            break
 
             # Emit taint.added event
             evt_taint = self.create_event(

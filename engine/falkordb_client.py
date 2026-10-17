@@ -756,13 +756,15 @@ class FalkorDBGraphClient(QueryAPIProtocol):
             for s_id in res_parent.result_set[0][1]:
                 siblings_found.add(s_id)
 
-        # 2. Units connected via lateral links (e.g. SHARED_LOT)
+        # 2. Units connected via lateral links (dynamically queried)
+        from engine.ontology_utils import get_lateral_edge_spec
+        lat_kind, lat_role_val = get_lateral_edge_spec()
         res_lat = self.graph.query(
             "MATCH (u {id: $u})-[r]-(s) "
-            "WHERE (r.role = 'lateral-link' OR type(r) IN ['LATERAL_LINK', 'SHARED_LOT', 'lateral-link']) "
+            "WHERE (r.role = 'lateral-link' OR type(r) = $lat_kind) "
             "AND s.id <> $u "
             "RETURN collect(DISTINCT s.id)",
-            {"u": unit},
+            {"u": unit, "lat_kind": lat_kind},
         )
         if res_lat.result_set and res_lat.result_set[0][0]:
             for s_id in res_lat.result_set[0][0]:

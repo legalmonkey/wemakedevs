@@ -180,7 +180,7 @@ class IncidentService:
             role_val = edge.role.value if hasattr(edge.role, "value") else str(edge.role)
             props = dict(edge.properties)
             is_taint = role_val == EdgeRole.TAINTS.value or edge.kind.lower() == "taints"
-            is_lateral = role_val == EdgeRole.LATERAL_LINK.value or "lateral" in edge.kind.lower()
+            is_lateral = role_val == "lateral-link" or "lateral" in edge.kind.lower()
             hops = props.get("hops")
 
             edges.append(

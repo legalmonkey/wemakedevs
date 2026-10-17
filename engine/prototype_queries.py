@@ -24,7 +24,7 @@ RETURN count(u) > 0 AS allowed
 
 # Prototype Query 2: Variable-Depth Trace with via_path and hops
 TRACE_PROTOTYPE_CYPHER = """
-MATCH path = (start {id: $start_id})-[:SUPPORT|DERIVES_FROM|SHIPS_IN|DELIVERED_TO|LATERAL_LINK*1..10]->(target)
+MATCH path = (start {id: $start_id})-[:SUPPORT|DERIVES_FROM|SHIPS_IN|DELIVERED_TO|TAINTS*1..10]->(target)
 RETURN target.id AS target_id, length(path) AS hops, [n IN nodes(path) | n.id] AS via_path
 """.strip()
 

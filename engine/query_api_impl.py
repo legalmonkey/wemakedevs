@@ -176,8 +176,11 @@ class QueryAPI:
 
         if hasattr(self.graph_client, "edges"):
             # 1. Units linked via lateral link
+            from engine.ontology_utils import get_lateral_edge_spec
+            lat_kind, lat_role_val = get_lateral_edge_spec()
             for edge in self.graph_client.edges:
-                if edge.role == EdgeRole.LATERAL_LINK:
+                e_role_str = edge.role.value if hasattr(edge.role, 'value') else str(edge.role)
+                if e_role_str == lat_role_val or edge.kind == lat_kind:
                     if edge.source_id == unit and edge.target_id != unit:
                         siblings_found.add(edge.target_id)
                     elif edge.target_id == unit and edge.source_id != unit:
