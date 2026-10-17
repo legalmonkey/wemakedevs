@@ -70,7 +70,16 @@ graph TD
 
 ---
 
-## 4. Test Suites & Verification
+## 4. Documentation Index
+
+- [**docs/CLAIMS.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/CLAIMS.md): Empirical benchmark metrics (100-seed run), crash safety hash invariance, and model boundary disclosures.
+- [**docs/DEMO_SCRIPT.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/DEMO_SCRIPT.md): Complete 3-minute presenter guide with exact timecodes and narrative beats.
+- [**docs/SUBMISSION.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/SUBMISSION.md): FalkorDB Hackathon Track 1 submission document and reviewer guide.
+- [**docs/AUDIT.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/AUDIT.md): Master engineering audit log with raw terminal outputs across all testing rounds.
+
+---
+
+## 5. Test Suites & Verification
 
 ### Run Standard Test Suite
 ```bash
@@ -80,6 +89,16 @@ python -m pytest tests/test_*.py tests/part_c/test_*.py -v
 ### Run Adversarial Audit Suite
 ```bash
 python -m pytest tests/audit/test_adversarial_audit.py -v
+```
+
+### Run Crash Safety Invariance Suite
+```bash
+python -m pytest tests/audit/test_demand1_crash_safety.py -v
+```
+
+### Run 3 Keyboard Demo Runs
+```bash
+python scripts/verify_item7_demo_runs.py
 ```
 
 ### Run Linter
