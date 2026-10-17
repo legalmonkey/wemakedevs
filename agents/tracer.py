@@ -55,11 +55,23 @@ class TracerAgent(BaseAgent):
             return work_items
 
         # Nodes that are suspect or tainted can propagate downstream
-        # Decision nodes can only propagate once adjudicated with verdict == 'tainted'
+        # Decision nodes:
+        # - If pending adjudication (status == 'pending' and verdict is not 'tainted'), wait for Adjudicator.
+        # - If reaffirmed or unverifiable, halt taint propagation downstream.
+        def _can_decision_propagate(dec_node: Any) -> bool:
+            props = dec_node.properties
+            verdict = props.get("verdict")
+            status = props.get("status")
+            if verdict in ("reaffirmed", "unverifiable") or status in ("reaffirmed", "unverifiable"):
+                return False
+            if status == "pending" and verdict != "tainted":
+                return False
+            return True
+
         active_nodes = [
             n for n in self.graph_client.nodes.values()
             if (n.properties.get("is_suspect", False) or n.properties.get("is_tainted", False))
-            and (n.role != NodeRole.DECISION or n.properties.get("verdict") == "tainted")
+            and (n.role != NodeRole.DECISION or _can_decision_propagate(n))
         ]
         # Strict BFS ordering: lowest hops first, then deterministic node_id tie-breaker
         active_nodes.sort(key=lambda n: (n.properties.get("taint_hops", 0), n.node_id))
