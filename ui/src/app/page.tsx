@@ -578,9 +578,45 @@ export default function ForensicDossier() {
         escalatedUnitIds.add(u.id);
       }
     });
-    const escalated = escalatedUnitIds.size;
 
-    // Suspect Units: flagged suspect OR connected via lateral links (e.g. SHARED_LOT or LATERAL_LINK)
+    // Reaffirmed: units that have reaffirmed status/verdict/release action and are NOT escalated
+    const reaffirmedUnitIds = new Set<string>();
+    unitNodes.forEach((u) => {
+      if (escalatedUnitIds.has(u.id)) return;
+      const s = (u.status || "").toLowerCase();
+      const stamp = (u.stamp_text || "").toUpperCase();
+      const verdict = String(u.properties?.verdict || "").toLowerCase();
+      if (verdict === "reaffirmed" || s === "reaffirmed" || stamp === "REAFFIRMED") {
+        reaffirmedUnitIds.add(u.id);
+      }
+    });
+
+    // Held: units that are tainted/quarantined/held and NOT escalated and NOT reaffirmed
+    const heldUnitIds = new Set<string>();
+    unitNodes.forEach((u) => {
+      if (escalatedUnitIds.has(u.id) || reaffirmedUnitIds.has(u.id)) return;
+      const s = (u.status || "").toLowerCase();
+      const stamp = (u.stamp_text || "").toUpperCase();
+      const verdict = String(u.properties?.verdict || "").toLowerCase();
+      if (verdict === "tainted" || s === "tainted" || s === "quarantined" || stamp === "HOLD") {
+        heldUnitIds.add(u.id);
+      }
+    });
+
+    // Unaffected: all remaining units (guarantees held + reaffirmed + escalated + unaffected === total)
+    const unaffectedUnitIds = new Set<string>();
+    unitNodes.forEach((u) => {
+      if (!escalatedUnitIds.has(u.id) && !reaffirmedUnitIds.has(u.id) && !heldUnitIds.has(u.id)) {
+        unaffectedUnitIds.add(u.id);
+      }
+    });
+
+    const held = heldUnitIds.size;
+    const reaffirmed = reaffirmedUnitIds.size;
+    const escalated = escalatedUnitIds.size;
+    const unaffected = unaffectedUnitIds.size;
+
+    // Suspect Units: active in-progress suspect units, strictly 0 at completion
     const lateralUnitIds = new Set<string>();
     edges.forEach((e) => {
       if (e.is_lateral || e.kind === "SHARED_LOT" || e.kind === "LATERAL_LINK") {
@@ -588,34 +624,25 @@ export default function ForensicDossier() {
       }
     });
 
-    let held = 0;
-    let reaffirmed = 0;
     let suspect = 0;
+    if (streamState !== "complete") {
+      unitNodes.forEach((u) => {
+        const s = (u.status || "").toLowerCase();
+        const stamp = (u.stamp_text || "").toUpperCase();
+        if (
+          u.properties?.is_suspect ||
+          u.properties?.suspect ||
+          s === "suspect" ||
+          stamp === "SUSPECT" ||
+          lateralUnitIds.has(u.id)
+        ) {
+          suspect++;
+        }
+      });
+    }
 
-    unitNodes.forEach((u) => {
-      const s = (u.status || "").toLowerCase();
-      const stamp = (u.stamp_text || "").toUpperCase();
-      const verdict = String(u.properties?.verdict || "").toLowerCase();
-
-      if (verdict === "reaffirmed" || s === "reaffirmed" || stamp === "REAFFIRMED") {
-        reaffirmed++;
-      }
-      if (verdict === "tainted" || s === "tainted" || s === "quarantined" || stamp === "HOLD") {
-        held++;
-      }
-      if (
-        u.properties?.is_suspect ||
-        u.properties?.suspect ||
-        s === "suspect" ||
-        stamp === "SUSPECT" ||
-        lateralUnitIds.has(u.id)
-      ) {
-        suspect++;
-      }
-    });
-
-    return { held, reaffirmed, escalated, suspect, total, escalatedUnitIds };
-  }, [nodes, edges, pendingQueue, stats]);
+    return { held, reaffirmed, escalated, unaffected, suspect, total, escalatedUnitIds, unaffectedUnitIds };
+  }, [nodes, edges, pendingQueue, stats, streamState]);
 
   // Filter nodes according to active filter chip (Requirement 3)
   const displayedNodes = useMemo(() => {
@@ -1008,7 +1035,7 @@ export default function ForensicDossier() {
             SEEDS:
           </span>
 
-          {[101, 202, 303, 4812].map((seed) => (
+          {[101, 202, 303, 4812, 31337].map((seed) => (
             <button
               key={seed}
               onClick={() => handleTriggerIncident(seed)}
@@ -1173,7 +1200,7 @@ export default function ForensicDossier() {
             </span>
           </div>
 
-          {/* Suspect Tile */}
+          {/* Unaffected Tile (Mutually Exclusive 4th State - Sums to Total Units) */}
           <div
             className="border-neo"
             style={{
@@ -1186,7 +1213,7 @@ export default function ForensicDossier() {
             }}
           >
             <span className="mono-label" style={{ color: "var(--ink-secondary)", fontSize: "10px" }}>
-              {registry?.vocabulary?.count_suspect_label || "SUSPECT"}
+              {registry?.vocabulary?.count_unaffected_label || "UNAFFECTED"}
             </span>
             <span
               className="font-mono"
@@ -1197,12 +1224,35 @@ export default function ForensicDossier() {
                 lineHeight: 1.1,
               }}
             >
-              {unitCounts.suspect}
+              {unitCounts.unaffected}
             </span>
             <span className="font-mono" style={{ fontSize: "9px", color: "var(--ink-secondary)", marginTop: "2px" }}>
-              {unitCounts.suspect} of {unitCounts.total} batches
+              {unitCounts.unaffected} of {unitCounts.total} batches
             </span>
           </div>
+
+          {/* Suspect In-Progress Indicator: Visible strictly during active run, 0 at completion */}
+          {streamState !== "complete" && unitCounts.suspect > 0 && (
+            <div
+              className="border-neo font-mono"
+              style={{
+                padding: "4px 10px",
+                backgroundColor: "var(--signal-suspect-bg)",
+                borderColor: "var(--signal-suspect)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                minWidth: "85px",
+              }}
+            >
+              <span className="mono-label" style={{ color: "var(--signal-suspect)", fontSize: "9px" }}>
+                SUSPECT (TRACING)
+              </span>
+              <span style={{ fontSize: "16px", fontWeight: 700, color: "var(--signal-suspect)" }}>
+                {unitCounts.suspect}
+              </span>
+            </div>
+          )}
 
           {/* Collapsible Ledger Drawer Toggle Button (Requirement 1 & 6) */}
           <button

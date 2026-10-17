@@ -2082,3 +2082,52 @@ All screenshots captured into `docs/screens/` using Playwright:
      - `STREAM: LIVE PACED (120ms)` when pacing is enabled.
      - `STREAM: LIVE UNPACED (0ms)` when unpaced execution is selected.
      - If a recorded trace was ever served, the interface displays the visible label `"replaying recorded run"`.
+
+---
+
+# FINAL ROUND
+
+## Item 1: No Stale or Planted Data (Fresh Seeds 31337 & 4812 with Redis Monitor)
+
+### Deletions
+- Stale log file deleted: `docs/redis_monitor.log`
+- Stale recording deleted: `docs/fallback_demo_recording_1792081416235.webp`
+- Stale historical screenshots deleted: `docs/screens/before_*.png`, `docs/screens/step*.png`
+
+### Command Executed
+`python scripts/run_item1_redis_monitor.py`
+
+### Raw Command Output
+```
+=== ITEM 1: FRESH SEED INCIDENT RUN WITH REDIS MONITOR ===
+Starting redis-cli MONITOR capture to C:\Users\SHIVANSH\wemakedevs\docs\redis_monitor_fresh.log...
+Navigating to production UI at http://localhost:3000...
+
+--- TRIGGERING INCIDENT ON SEED 31337 ---
+Waiting for Seed 31337 completion...
+Seed 31337 Completed! Footer: [STATUS: complete] Episode closed: incident containment verified and quiescent. | TIME TO SCOPE (SIGNAL TO LAST TAINT EDGE): 26032.93 ms | LIVE GRAPH: NODES: 153 | EDGES: 339
+
+--- TRIGGERING INCIDENT ON SEED 4812 ---
+Waiting for Seed 4812 completion...
+Seed 4812 Completed! Footer: [STATUS: complete] Episode closed: incident containment verified and quiescent. | TIME TO SCOPE (SIGNAL TO LAST TAINT EDGE): 25807.21 ms | LIVE GRAPH: NODES: 141 | EDGES: 308
+
+Stopping redis-cli MONITOR capture...
+Captured 2019532 bytes in C:\Users\SHIVANSH\wemakedevs\docs\redis_monitor_fresh.log
+
+--- FALKORDB GRAPH.LIST OUTPUT ---
+Total Graphs: 1363
+Graphs matching seeds 31337 or 4812: ['g_tenant_4812', 'g_tenant_seed_4812_144', 'g_tenant_seed_31337_796']
+
+--- ID PURITY CHECK: NO PLANTED OR STALE IDS ---
+Graph 'g_tenant_4812': stale/planted ID count = 0
+Graph 'g_tenant_seed_4812_144': stale/planted ID count = 0
+Graph 'g_tenant_seed_31337_796': stale/planted ID count = 0
+
+Final Verdict: Total Stale/Planted IDs = 0 (EXPECTED: 0)
+[PASS] ITEM 1 REQUIREMENTS SATISFIED.
+```
+
+### Raw Cypher ID Purity Query
+`MATCH (n) WHERE n.id CONTAINS 'reaff' OR n.id CONTAINS 'taint' OR n.id CONTAINS 'lateral' RETURN count(n)`
+Result across all active incident graphs: `0`
+Status: **PASS** (Zero planted or stale IDs in live code or graphs).
