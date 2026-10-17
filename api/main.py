@@ -57,7 +57,25 @@ EVENT_SUBSCRIBERS: list[asyncio.Queue] = []
 def load_registry_data() -> dict:
     tokens_path = Path(__file__).parent / "tokens.json"
     with open(tokens_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+
+    # Dynamic pack vocabulary discovery (Usability Requirement 12)
+    packs_dir = Path(__file__).parent.parent / "packs"
+    if packs_dir.exists():
+        import yaml
+        for vocab_file in packs_dir.glob("*/vocabulary.yaml"):
+            try:
+                with open(vocab_file, "r", encoding="utf-8") as vf:
+                    pv = yaml.safe_load(vf)
+                    if isinstance(pv, dict):
+                        for cat in ["hazards", "assay_methods", "product_categories", "units", "actions"]:
+                            for term in pv.get(cat, []):
+                                if isinstance(term, str) and term not in data["vocabulary"]:
+                                    data["vocabulary"][term] = term.replace("_", " ").title()
+            except Exception:
+                pass
+
+    return data
 
 
 @app.get("/health")

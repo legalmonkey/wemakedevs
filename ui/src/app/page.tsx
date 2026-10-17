@@ -610,14 +610,27 @@ export default function ForensicDossier() {
     return { held, reaffirmed, escalated, suspect };
   }, [nodes]);
 
+  // Helper to format pack vocabulary terms dynamically (Requirement 2 & 12)
+  const formatVocab = useCallback(
+    (term?: string): string => {
+      if (!term) return "";
+      if (registry?.vocabulary && registry.vocabulary[term]) {
+        return registry.vocabulary[term];
+      }
+      return term.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    },
+    [registry]
+  );
+
   // Determine next human action description
   const nextHumanActionText = useMemo(() => {
     if (pendingQueue.length > 0) {
       const first = pendingQueue[0];
-      return `Operator review required: Adjudicate ${first.action_kind} for target ${first.target_entity_id}.`;
+      const actionName = formatVocab(first.action_kind);
+      return `Operator review required: Adjudicate ${actionName} for target ${first.target_entity_id}.`;
     }
     return registry?.vocabulary?.next_action_empty || "No manual actions pending. All graph paths verified by policy.";
-  }, [pendingQueue, registry]);
+  }, [pendingQueue, registry, formatVocab]);
 
   // Causal path set for highlighting in Why inspection (Rule 7)
   const highlightedEntitySet = useMemo(() => {
@@ -1626,7 +1639,7 @@ export default function ForensicDossier() {
                   <div style={{ flex: 1, minWidth: "280px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
                       <span className="mono-label" style={{ color: "var(--signal-taint)" }}>
-                        {item.action_kind}
+                        {formatVocab(item.action_kind)}
                       </span>
                       <span className="forensic-stamp stamp-taint" style={{ fontSize: "9px" }}>
                         APPROVAL REQUIRED
@@ -2092,7 +2105,7 @@ export default function ForensicDossier() {
                 </div>
                 <div style={{ marginTop: "4px" }}>
                   <span style={{ color: "var(--ink-muted)" }}>ACTION KIND: </span>
-                  <strong>{whyData.action_kind}</strong>
+                  <strong>{formatVocab(whyData.action_kind)}</strong>
                 </div>
                 <div style={{ marginTop: "4px" }}>
                   <span style={{ color: "var(--ink-muted)" }}>PATH LENGTH: </span>
@@ -2137,7 +2150,7 @@ export default function ForensicDossier() {
                         }}
                       >
                         <span className="font-mono" style={{ fontWeight: 700 }}>
-                          Step {step.step_number}: {step.kind} ({step.role})
+                          Step {step.step_number}: {formatVocab(step.kind)} ({step.role})
                         </span>
                         {step.stamp_text && (
                           <span className="forensic-stamp stamp-taint" style={{ fontSize: "8px" }}>

@@ -297,7 +297,7 @@ class IncidentService:
                         "causal_path": payload.get("causal_path", []),
                         "requires_approval": payload.get("requires_approval", True),
                         "approved": False,
-                        "draft_content": payload.get("draft_content", "Draft customer advisory notice prepared under FSMA protocol. Human sign-off required prior to logistics interception dispatch."),
+                        "draft_content": payload.get("draft_content") or "Draft customer advisory notice prepared under FSMA protocol. Human sign-off required prior to logistics interception dispatch.",
                     }
                 await publish(data)
             if tick_res.total_items_processed == 0:
