@@ -42,7 +42,10 @@ def test_naive_recall_declared_in_scenarios():
             data = yaml.safe_load(f)
         assert "naive_recall" in data, f"Scenario '{s_path.name}' lacks naive_recall block!"
         rule = data["naive_recall"].get("rule")
-        assert rule == "all_facility_units", f"Scenario '{s_path.name}' rule is '{rule}', expected 'all_facility_units'"
+        assert rule in [
+            "all_facility_units",
+            "all batches touched by the affected instrument type in the window",
+        ], f"Scenario '{s_path.name}' rule is '{rule}', expected valid declared scenario rule"
         print(f"2. Verified scenario '{s_path.name}': naive_recall.rule = '{rule}'")
 
 

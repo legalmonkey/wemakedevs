@@ -7,11 +7,12 @@ ensuring zero hardcoding of pack-specific literals in code.
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Tuple
+from functools import lru_cache
 import yaml
-
 from contracts.ontology import EdgeRole
 
 
+@lru_cache(maxsize=16)
 def get_lateral_edge_spec(ontology_path: Optional[Path] = None) -> Tuple[str, str]:
     """Retrieves the lateral edge kind and role string declared in ontology.yaml.
     

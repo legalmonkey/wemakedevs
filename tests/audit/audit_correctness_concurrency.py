@@ -113,16 +113,15 @@ def test_c2_restart_idempotency_kills():
 
     # 2. Kill and restart Sentinel after 1 tick
     c_sentinel = generate_seeded_incident(seed)
-    s_agent = SentinelAgent(c_sentinel.tenant_id, c_sentinel)
     loop_s = EventLoop(tenant_id=c_sentinel.tenant_id)
-    loop_s.register_agent(s_agent)
-    loop_s.run_tick()
-    # Kill and recreate sentinel
-    loop_s.agents.clear()
     loop_s.register_agent(SentinelAgent(c_sentinel.tenant_id, c_sentinel))
     loop_s.register_agent(TracerAgent(c_sentinel.tenant_id, c_sentinel))
     loop_s.register_agent(AdjudicatorAgent(c_sentinel.tenant_id, c_sentinel))
     loop_s.register_agent(DispatcherAgent(c_sentinel.tenant_id, c_sentinel))
+    loop_s.run_tick()
+    # Kill and recreate sentinel
+    loop_s.agents = [a for a in loop_s.agents if a.name != "Sentinel"]
+    loop_s.register_agent(SentinelAgent(c_sentinel.tenant_id, c_sentinel))
     loop_s.run_until_idle()
     hash_s = canonical_hash(c_sentinel)
     assert hash_s == base_hash, f"Sentinel kill hash mismatch: {hash_s} != {base_hash}"
@@ -132,12 +131,12 @@ def test_c2_restart_idempotency_kills():
     loop_t = EventLoop(tenant_id=c_tracer.tenant_id)
     loop_t.register_agent(SentinelAgent(c_tracer.tenant_id, c_tracer))
     loop_t.register_agent(TracerAgent(c_tracer.tenant_id, c_tracer))
+    loop_t.register_agent(AdjudicatorAgent(c_tracer.tenant_id, c_tracer))
+    loop_t.register_agent(DispatcherAgent(c_tracer.tenant_id, c_tracer))
     loop_t.run_tick() # Sentinel runs, tracer queued
     # Kill tracer
     loop_t.agents = [a for a in loop_t.agents if a.name != "Tracer"]
     loop_t.register_agent(TracerAgent(c_tracer.tenant_id, c_tracer))
-    loop_t.register_agent(AdjudicatorAgent(c_tracer.tenant_id, c_tracer))
-    loop_t.register_agent(DispatcherAgent(c_tracer.tenant_id, c_tracer))
     loop_t.run_until_idle()
     hash_t = canonical_hash(c_tracer)
     assert hash_t == base_hash, f"Tracer kill hash mismatch: {hash_t} != {base_hash}"
@@ -147,6 +146,8 @@ def test_c2_restart_idempotency_kills():
     loop_all = EventLoop(tenant_id=c_all.tenant_id)
     loop_all.register_agent(SentinelAgent(c_all.tenant_id, c_all))
     loop_all.register_agent(TracerAgent(c_all.tenant_id, c_all))
+    loop_all.register_agent(AdjudicatorAgent(c_all.tenant_id, c_all))
+    loop_all.register_agent(DispatcherAgent(c_all.tenant_id, c_all))
     loop_all.run_tick()
     loop_all.run_tick()
     # Kill ALL agents
@@ -262,8 +263,8 @@ def test_c5_load_sequential_and_concurrent():
     # Demand (6): Justified threshold based on measured baselines:
     # - Measured native execution baseline: avg=2925.39ms, min=808.20ms, max=7388.44ms
     # - Measured pytest execution baseline: avg=9652.99ms, min=1910.08ms, max=26445.84ms
-    # Justified threshold: 15000.0ms tightly bounds live TCP socket FalkorDB execution under pytest
-    assert avg_ms < 15000.0, f"Average time {avg_ms}ms exceeded justified 15000.0ms threshold (measured pytest baseline: 9652.99ms)"
+    # Justified threshold: 10000.0ms tightly bounds live TCP socket FalkorDB execution under pytest
+    assert avg_ms < 10000.0, f"Average time {avg_ms}ms exceeded justified 10000.0ms threshold (measured pytest baseline: 9652.99ms)"
 
 
 # --- C6: Stored Path Explain Coverage (Target 100%) ---

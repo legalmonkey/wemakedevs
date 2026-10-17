@@ -63,20 +63,23 @@ class AdjudicatorAgent(BaseAgent):
         if not hasattr(self.graph_client, "nodes"):
             return work_items
 
-        for node in self.graph_client.nodes.values():
-            if node.role == NodeRole.DECISION:
-                # Check if decision is tainted or impacted, and lacks a final verdict
-                is_tainted = node.properties.get("is_tainted", False)
-                verdict_set = node.properties.get("verdict_set", False)
-                if is_tainted and not verdict_set:
-                    work_items.append(
-                        WorkItem(
-                            item_id=f"work-adj-{node.node_id}",
-                            entity_id=node.node_id,
-                            role=node.role.value,
-                            properties=dict(node.properties),
-                        )
-                    )
+        candidate_decisions = [
+            n for n in self.graph_client.nodes.values()
+            if n.role == NodeRole.DECISION
+            and n.properties.get("is_tainted", False)
+            and not n.properties.get("verdict_set", False)
+        ]
+        candidate_decisions.sort(key=lambda n: n.node_id)
+
+        for node in candidate_decisions:
+            work_items.append(
+                WorkItem(
+                    item_id=f"work-adj-{node.node_id}",
+                    entity_id=node.node_id,
+                    role=node.role.value,
+                    properties=dict(node.properties),
+                )
+            )
         return work_items
 
     def process_item(self, item: WorkItem) -> List[EventEnvelope]:

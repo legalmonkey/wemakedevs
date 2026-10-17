@@ -36,8 +36,10 @@ class EventLoop:
         self.tick_count: int = 0
 
     def register_agent(self, agent: BaseAgent) -> None:
-        """Register an agent into the loop."""
+        """Register an agent into the loop in canonical pipeline execution order."""
         self.agents.append(agent)
+        order = {"Sentinel": 1, "Tracer": 2, "Adjudicator": 3, "Dispatcher": 4}
+        self.agents.sort(key=lambda a: order.get(a.name, 99))
 
     def add_event_listener(self, listener: Callable[[EventEnvelope], None]) -> None:
         """Add an event listener (e.g., SSE publisher or test collector)."""

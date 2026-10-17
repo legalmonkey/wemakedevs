@@ -158,10 +158,7 @@ class IncidentService:
             elif stamp_text is None and status_lower in reg_mapping:
                 stamp_text = reg_mapping[status_lower]["stamp_text"]
                 ink_token = reg_mapping[status_lower]["ink_token"]
-            elif status_lower in reg_mapping:
-                stamp_text = reg_mapping[status_lower]["stamp_text"]
-                ink_token = reg_mapping[status_lower]["ink_token"]
-            elif status and status != "normal":
+            elif stamp_text is None and status and status != "normal":
                 stamp_text = str(status).replace("status_", "").replace("_", " ").upper()
                 if any(w in status_lower for w in ("taint", "quarantine", "hold", "block")):
                     ink_token = "tainted"
@@ -349,7 +346,7 @@ class IncidentService:
                         "causal_path": payload.get("causal_path", []),
                         "requires_approval": payload.get("requires_approval", True),
                         "approved": False,
-                        "draft_content": payload.get("draft_content") or "Draft customer advisory notice prepared under FSMA protocol. Human sign-off required prior to logistics interception dispatch.",
+                        "draft_content": payload.get("draft_content") or "Draft customer advisory notice prepared under declared safety protocol. Human sign-off required prior to logistics interception dispatch.",
                     }
                 await publish(data)
             if tick_res.total_items_processed == 0:
@@ -471,7 +468,7 @@ class IncidentService:
                     "action_id": aid,
                     "action_kind": data.get("action_kind", "quarantine_hold"),
                     "target_entity_id": data.get("target_entity_id", aid),
-                    "draft_content": data.get("draft_content", "Draft customer advisory notice prepared under FSMA protocol. Human sign-off required prior to logistics interception dispatch."),
+                    "draft_content": data.get("draft_content", "Draft customer advisory notice prepared under declared safety protocol. Human sign-off required prior to logistics interception dispatch."),
                     "causal_path": data.get("causal_path", []),
                     "requires_approval": True,
                     "approved": False,
@@ -486,7 +483,7 @@ class IncidentService:
                         "action_id": node_id,
                         "action_kind": node.properties.get("action_kind") or node.kind or "quarantine_hold",
                         "target_entity_id": node.properties.get("target_entity_id", node_id),
-                        "draft_content": node.properties.get("draft_content") or "FSMA recall protocol: quarantine hold notification requires forensic operator adjudication.",
+                        "draft_content": node.properties.get("draft_content") or "Standard safety recall protocol: quarantine hold notification requires forensic operator adjudication.",
                         "causal_path": node.properties.get("causal_path", [node_id]),
                         "requires_approval": True,
                         "approved": False,
@@ -614,11 +611,6 @@ class IncidentService:
         """Executes the forensic evaluation harness (Part A Phase A4)."""
         harness = EvaluationHarness(base_seed=self.current_seed)
         report = harness.run_benchmark(num_incidents=num_incidents)
-        for inc in report.incidents:
-            if inc.seed in self.time_to_scope_by_seed:
-                inc.duration_ms = self.time_to_scope_by_seed[inc.seed]
-            else:
-                self.time_to_scope_by_seed[inc.seed] = round(inc.duration_ms, 2)
         return report
 
 

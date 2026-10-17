@@ -16,7 +16,7 @@ from engine.generator import FoodGraphGenerator, _generate_id
 
 def generate_seeded_incident(
     seed: int,
-    num_units: int = 30,
+    num_units: Optional[int] = None,
     num_decisions: int = 15,
     num_product_families: int = 3,
     clean: bool = True,

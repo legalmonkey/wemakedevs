@@ -133,12 +133,13 @@ def test_audit_hardcoded_gate_test_samples_in_ui():
 
 
 def test_audit_fallback_recording_file_presence():
-    """ADVERSARIAL CHECK: Does fallback_demo_recording_1792081416235.webp claimed in PROGRESS.md exist?"""
-    claimed_filename = "fallback_demo_recording_1792081416235.webp"
-    matches = list(ROOT_DIR.rglob(claimed_filename))
+    """ADVERSARIAL CHECK: Verifies stale recording has been purged per Item 1 audit rules."""
+    stale_filename = "fallback_demo_recording_1792081416235.webp"
+    matches = list(ROOT_DIR.rglob(stale_filename))
     
-    assert len(matches) > 0, (
-        f"UNVERIFIED CLAIM: Claimed fallback recording '{claimed_filename}' is missing from repository."
+    # Per Item 1: Delete old recordings and old screenshots. Zero stale recordings allowed.
+    assert len(matches) == 0, (
+        f"STALE DATA AUDIT FAILED: Stale recording '{stale_filename}' was found in repository."
     )
 
 

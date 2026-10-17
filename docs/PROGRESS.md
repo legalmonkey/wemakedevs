@@ -833,8 +833,8 @@ tests/test_lint.py::test_project_lint PASSED                             [100%]
     - Exactly 1 lateral link traversal (unplanned batch contaminated via shared equipment/lot).
     - Verified chain-of-custody Why drawer causal path retrieval for all actions.
     - Human operator approval governance on drafted notices.
-  - [x] Fallback demo recording captured and verified:
-    - Video Recording Artifact: `fallback_demo_recording_1792081416235.webp`
+  - [x] Stale recordings purged per Item 1 audit; fresh demo recordings verified in Item 5c/7:
+    - Purged stale recording artifact: `fallback_demo_recording_1792081416235.webp` (removed per Item 1)
   - [x] Three-minute demo script finalized and rehearsed (see below).
   - [x] Automated Phase C4 exit check suite passing in `tests/part_c/test_c4_demo_runs.py`.
 - **Exit Check:** "Three clean 3-minute runs on fresh seeds"
@@ -919,7 +919,7 @@ tests/part_c/test_c4_demo_runs.py::test_c4_why_drawer_and_evaluation_genuine PAS
 - Active Services:
   - FastAPI Server: http://127.0.0.1:8001 (Healthy, 200 OK)
   - Next.js UI: http://localhost:3000 (Responsive 100vh layout)
-  - Fallback Recording: fallback_demo_recording_1792081416235.webp
+  - Recording: Stale recordings purged per Item 1 (fresh recordings generated in Item 5c/7)
 ```
 
 ### Human Review & Approval Gate (Section 0 Rule 10)

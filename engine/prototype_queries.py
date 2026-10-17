@@ -13,6 +13,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import logging
 
+from engine.ontology_utils import get_lateral_edge_spec
+
 logger = logging.getLogger(__name__)
 
 # Prototype Query 1: Parameterised Tool Gate Query
@@ -23,8 +25,9 @@ RETURN count(u) > 0 AS allowed
 """.strip()
 
 # Prototype Query 2: Variable-Depth Trace with via_path and hops
-TRACE_PROTOTYPE_CYPHER = """
-MATCH path = (start {id: $start_id})-[:SUPPORT|DERIVES_FROM|SHIPS_IN|DELIVERED_TO|TAINTS*1..10]->(target)
+_lateral_kind, _ = get_lateral_edge_spec()
+TRACE_PROTOTYPE_CYPHER = f"""
+MATCH path = (start {{id: $start_id}})-[:SUPPORT|DERIVES_FROM|SHIPS_IN|DELIVERED_TO|{_lateral_kind}*1..10]->(target)
 RETURN target.id AS target_id, length(path) AS hops, [n IN nodes(path) | n.id] AS via_path
 """.strip()
 

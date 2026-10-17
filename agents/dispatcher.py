@@ -41,19 +41,23 @@ class DispatcherAgent(BaseAgent):
         if not hasattr(self.graph_client, "nodes"):
             return work_items
 
-        for node in self.graph_client.nodes.values():
-            if node.role == NodeRole.DECISION:
-                verdict_set = node.properties.get("verdict_set", False)
-                action_dispatched = node.properties.get("action_dispatched", False)
-                if verdict_set and not action_dispatched:
-                    work_items.append(
-                        WorkItem(
-                            item_id=f"work-disp-{node.node_id}",
-                            entity_id=node.node_id,
-                            role=node.role.value,
-                            properties=dict(node.properties),
-                        )
-                    )
+        candidate_decisions = [
+            n for n in self.graph_client.nodes.values()
+            if n.role == NodeRole.DECISION
+            and n.properties.get("verdict_set", False)
+            and not n.properties.get("action_dispatched", False)
+        ]
+        candidate_decisions.sort(key=lambda n: n.node_id)
+
+        for node in candidate_decisions:
+            work_items.append(
+                WorkItem(
+                    item_id=f"work-disp-{node.node_id}",
+                    entity_id=node.node_id,
+                    role=node.role.value,
+                    properties=dict(node.properties),
+                )
+            )
         return work_items
 
     def process_item(self, item: WorkItem) -> List[EventEnvelope]:
@@ -164,9 +168,17 @@ class DispatcherAgent(BaseAgent):
                     # DEMAND 5 INVARIANT: A reaffirmed unit can NEVER be held or noticed under any agent interleaving
                     continue
 
-                # Ensure unit is in tainted state for the atomic hold query
+                # Ensure unit is in tainted state for the atomic hold query with consistent hops/path
                 if hasattr(self.graph_client, "update_node"):
-                    self.graph_client.update_node(target_id, {"is_tainted": True, "verdict": "tainted"})
+                    target_props = {
+                        "is_tainted": True,
+                        "verdict": "tainted",
+                        "taint_source": decision_id,
+                    }
+                    if not (target_node and target_node.properties.get("taint_via_path")):
+                        target_props["taint_via_path"] = unit_path
+                        target_props["taint_hops"] = len(unit_path) - 1
+                    self.graph_client.update_node(target_id, target_props)
 
                 action_id = f"act-hold-{target_id}"
 

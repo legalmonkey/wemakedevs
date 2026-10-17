@@ -261,7 +261,7 @@ class ProceduralMemory:
                 evidence_sufficient=False,
                 min_evidence_threshold=self.min_evidence_episodes,
                 total_episodes_found=total_episodes,
-                ranked_procedures=evaluations,
+                ranked_procedures=[],
                 statement=(
                     f"Below threshold: The system has recorded {total_episodes} episode(s) "
                     f"(minimum required: {self.min_evidence_episodes}). "
@@ -287,9 +287,9 @@ class ProceduralMemory:
         )
 
     def purge_test_episodes(self) -> int:
-        """Purges test and dummy episodes from persistent memory graph (Demand 3)."""
+        """Purges test and transient episodes from persistent memory graph (Demand 3)."""
         target = self.persistent_client
-        cypher = "MATCH (e) WHERE (e:Episode OR e:IncidentEpisode) AND (e.id CONTAINS 'test' OR e.id CONTAINS 'run' OR e.id CONTAINS 'dummy' OR e.id CONTAINS 'bench') DETACH DELETE e"
+        cypher = "MATCH (e) WHERE (e:Episode OR e:IncidentEpisode) AND (e.id CONTAINS 'test' OR e.id CONTAINS 'run' OR e.id CONTAINS 'transient' OR e.id CONTAINS 'bench') DETACH DELETE e"
         if hasattr(target, "graph") and hasattr(target.graph, "query"):
             res = target.graph.query(cypher)
             return getattr(res, "nodes_deleted", 0)

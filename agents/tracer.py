@@ -31,18 +31,19 @@ class TracerAgent(BaseAgent):
         self.allow_lateral = allow_lateral
 
     def _is_already_tainted(self, node_id: str) -> bool:
-        """Check if a node has already been tainted or is suspect evidence."""
-        node = self.graph_client.get_node(node_id)
-        if node and (node.properties.get("is_tainted", False) or node.properties.get("is_suspect", False)):
-            return True
+        """Check if a node has already been traversed by tracer (has incoming TAINTS edge or is suspect)."""
         if hasattr(self.graph_client, "get_incoming_edges"):
             in_edges = self.graph_client.get_incoming_edges(node_id, role=EdgeRole.TAINTS)
             if in_edges:
                 return True
         elif hasattr(self.graph_client, "edges"):
             for edge in self.graph_client.edges:
-                if edge.target_id == node_id and edge.role == EdgeRole.TAINTS:
+                edge_role = edge.role.value if hasattr(edge.role, "value") else str(edge.role)
+                if edge.target_id == node_id and (edge_role == EdgeRole.TAINTS.value or edge.kind == "TAINTS"):
                     return True
+        node = self.graph_client.get_node(node_id)
+        if node and node.properties.get("is_suspect", False):
+            return True
         return False
 
     def poll_work(self) -> List[WorkItem]:

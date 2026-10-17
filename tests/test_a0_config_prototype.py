@@ -162,6 +162,8 @@ def test_prototype_cypher_dialect_conformance():
     assert "$entity_id" in GATE_PROTOTYPE_CYPHER
 
     # Variable-depth trace query structure
-    assert "MATCH path = (start {id: $start_id})-[:SUPPORT|DERIVES_FROM|SHIPS_IN|DELIVERED_TO|LATERAL_LINK*1..10]->(target)" in TRACE_PROTOTYPE_CYPHER
+    from engine.ontology_utils import get_lateral_edge_spec
+    lat_kind, _ = get_lateral_edge_spec()
+    assert f"MATCH path = (start {{id: $start_id}})-[:SUPPORT|DERIVES_FROM|SHIPS_IN|DELIVERED_TO|{lat_kind}*1..10]->(target)" in TRACE_PROTOTYPE_CYPHER
     assert "length(path) AS hops" in TRACE_PROTOTYPE_CYPHER
     assert "[n IN nodes(path) | n.id] AS via_path" in TRACE_PROTOTYPE_CYPHER

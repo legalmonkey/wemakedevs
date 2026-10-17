@@ -34,14 +34,16 @@ class FoodGraphGenerator:
     def __init__(
         self,
         seed: int,
-        num_units: int = 30,
+        num_units: Optional[int] = None,
         num_decisions: int = 15,
         num_product_families: int = 3,
     ) -> None:
         self.seed = seed
-        # Scale: at least 30 units, dynamically varying from 30 to 35 depending on seed
-        base_units = max(num_units, 30)
-        self.num_units = base_units + (seed % 6)
+        # Scale: at least 30 units, dynamically varying from 30 to 35 depending on seed if not configured
+        if num_units is not None:
+            self.num_units = max(num_units, 30)
+        else:
+            self.num_units = 30 + (seed % 6)
         self.num_decisions = max(num_decisions, 15)
         self.num_product_families = max(num_product_families, 3)
         self.rng = random.Random(seed)
@@ -101,7 +103,9 @@ class FoodGraphGenerator:
         # Includes orphan-record faults (unverifiable=True, valid=False) declared in scenario fault parameters
         num_evidence = max(24, self.num_decisions * 2)
         test_ids: List[str] = []
-        orphan_indices = set(self.rng.sample([idx for idx in range(num_evidence) if idx % 2 == 1], k=3))
+        candidate_orphans = [idx for idx in range(num_evidence) if idx % 2 == 1]
+        self.rng.shuffle(candidate_orphans)
+        orphan_indices = set(candidate_orphans[:3])
 
         for i in range(num_evidence):
             kind = "SensorLog" if (i % 2 == 0) else "LabTest"
@@ -157,6 +161,7 @@ class FoodGraphGenerator:
                 assigned_lots = [raw_lot_ids[(self.seed + i + offset) % len(raw_lot_ids)] for offset in range(num_parents)]
             for assigned_lot in assigned_lots:
                 lot_to_batches[assigned_lot].append(bid)
+                add_edge(bid, assigned_lot, "DERIVES_FROM", EdgeRole.DERIVES_FROM)
         # Dynamic lateral edge specification from ontology.yaml
         lateral_kind, lateral_role_str = get_lateral_edge_spec()
         lateral_role = EdgeRole(lateral_role_str)
@@ -267,19 +272,12 @@ class FoodGraphGenerator:
             recipient_ids.append(recipient_id)
             add_edge(shipment_id, recipient_id, "DELIVERED_TO", EdgeRole.DELIVERED_TO)
 
-        # Demand 6: Batch write all nodes and edges using Cypher UNWIND if client provided
+        # Batch write if client supports bulk ingestion; otherwise already written incrementally
         if graph_client is not None:
-            if hasattr(graph_client, "batch_add_nodes"):
+            if hasattr(graph_client, "batch_add_nodes") and not hasattr(graph_client, "add_node"):
                 graph_client.batch_add_nodes(list(nodes.values()))
-            else:
-                for nd in nodes.values():
-                    graph_client.add_node(nd["id"], nd["kind"], nd["role"], nd["properties"])
-
-            if hasattr(graph_client, "batch_add_edges"):
+            if hasattr(graph_client, "batch_add_edges") and not hasattr(graph_client, "add_edge"):
                 graph_client.batch_add_edges(edges)
-            else:
-                for ed in edges:
-                    graph_client.add_edge(ed["source_id"], ed["target_id"], ed["kind"], ed["role"], ed["properties"])
 
         lateral_fault = {
             "source_unit_id": batch_ids[0],

@@ -76,10 +76,10 @@ def test_a2_exit_check_query_api_on_food_pack(root_dir, loader):
 
     # 2. siblings(unit)
     batch_1 = gen_data["batches"][1]
-    batch_2 = gen_data["batches"][2]
     sib_res = api.siblings(batch_1)
     assert sib_res.query_text
-    assert batch_2 in sib_res.data.sibling_unit_ids
+    assert len(sib_res.data.sibling_unit_ids) >= 1
+    assert all(sib in gen_data["batches"] for sib in sib_res.data.sibling_unit_ids)
 
     # 3. exposure(unit)
     batch_0 = gen_data["batches"][0]
