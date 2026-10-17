@@ -1655,3 +1655,179 @@ PASSED
 
 ============================= 1 passed in 19.01s ==============================
   ```
+
+---
+
+## 8. Minimalist Neobrutalism Presentation & Banned-List Audit (Part C Final)
+
+**Scope**: Strictly restricted to presentation code (`ui/` and `api/`). Backend behavior (`engine/`, `agents/`, `toolserver/`) preserved with zero modifications.  
+**Design Paradigm**: Minimalist Neobrutalism (Warm paper background `#F7F4EC`, carbon ink `#181716`, solid 2-3px borders from token, hard offset zero-blur shadows only on interactive/selected states, square corners `0px`, flat colors, serif display typography, monospace code/IDs, grotesque body >= 16px, tight uppercase mono labels).  
+**Contract Baseline**: `docs/CONTRACT_CHANGES.md` supersedes `DESIGN_BRIEF.md` for line weight, shadows, and corners only. Paper palette, three signal inks, stamps, query log, Why drawer, and banned list remain strictly enforced.
+
+---
+
+### 8.1 Verification Commands & Verbatim Outputs
+
+#### 1. Next.js Production Build (`npm run build`)
+```powershell
+npm run build
+```
+```text
+> ui@0.1.0 build
+> next build
+
+▲ Next.js 16.2.12 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1375ms
+  Running TypeScript ...
+  Finished TypeScript in 2.3s ...
+  Collecting page data using 4 workers ...
+  Generating static pages using 4 workers (0/3) ...
+✓ Generating static pages using 4 workers (3/3) in 478ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+└ ○ /_not-found
+
+○  (Static)  prerendered as static content
+```
+*Verdict*: **PASS** (Zero build errors, Turbopack optimized production compilation).
+
+---
+
+#### 2. ESLint Validation (`npm run lint`)
+```powershell
+npm run lint
+```
+```text
+> ui@0.1.0 lint
+> eslint
+```
+*Verdict*: **PASS** (Zero ESLint warnings or errors).
+
+---
+
+#### 3. Section 0 & Rule 3 Linter (`python scripts/lint.py`)
+```powershell
+python scripts/lint.py
+```
+```text
+Linting complete: 90 files inspected.
+All lint checks PASSED cleanly (zero syntax errors, zero raw hex colors, zero id-shaped literals).
+```
+*Verdict*: **PASS** (Zero syntax errors, zero raw hex colors in production code, zero hardcoded domain IDs).
+
+---
+
+#### 4. WCAG 2.1 Contrast Accessibility Audit (`python tests/audit/audit_u4_contrast_accessibility.py`)
+```powershell
+python tests/audit/audit_u4_contrast_accessibility.py
+```
+```text
+Base Paper Background: #F7F4EC (Luminance: 0.9053)
+
+Token              Hex        Contrast vs Paper    WCAG AA (>= 4.5:1)
+--------------------------------------------------------------------
+ink-primary        #181716    16.29:1               PASS
+ink-secondary      #4D4A46    8.02:1               PASS
+ink-muted          #635F5A    5.76:1               PASS
+signal-taint       #C23B22    4.85:1               PASS
+signal-reaffirm    #1B5E20    7.16:1               PASS
+signal-suspect     #8F5400    5.56:1               PASS
+signal-neutral     #5E5852    6.38:1               PASS
+
+Contrast against Elevated Paper (#EFECE3):
+  ink-primary       : 15.16:1 -> PASS
+  ink-secondary     : 7.46:1 -> PASS
+  ink-muted         : 5.36:1 -> PASS
+  signal-taint      : 4.51:1 -> PASS
+  signal-reaffirm   : 6.66:1 -> PASS
+  signal-suspect    : 5.17:1 -> PASS
+  signal-neutral    : 5.94:1 -> PASS
+
+All ink tokens meet WCAG 4.5:1 against base paper.
+```
+*Verdict*: **PASS** (All ink tokens exceed WCAG 2.1 AA 4.5:1 contrast).
+
+---
+
+### 8.2 Banned-List Item-by-Item Review
+
+| # | Banned Item | Inspection Methodology & Code/Visual Evidence | Verdict |
+| :-: | :--- | :--- | :---: |
+| 1 | **Gradients** | Automated regex search across `ui/src/app/globals.css` and `ui/src/app/page.tsx` for `linear-gradient`, `radial-gradient`, and `conic-gradient`. Zero occurrences found. All backgrounds are solid flat tokens (`var(--bg-paper)`, `var(--bg-paper-elevated)`, `var(--bg-paper-sunken)`). | **PASS** |
+| 2 | **Glassmorphism / Backdrop-Blur** | Inspected CSS rules for `backdrop-filter`, `blur`, and semi-transparent alpha overlays. Zero occurrences found. Dialogs and drawers render with opaque paper backgrounds (`var(--bg-paper-elevated)`) with solid 2px borders. | **PASS** |
+| 3 | **Centred hero with two buttons** | Inspected top layout and visual hierarchy. Top section is a left-aligned, information-dense operational header: single primary action button `INVESTIGATE RECALL` on the left, seed controls adjacent, status tiles on the right. Zero centered marketing hero containers. | **PASS** |
+| 4 | **Three-up icon cards** | Inspected grid and card structures. View uses a split-pane forensic workspace (60% SVG graph canvas, 40% vertical forensic audit query and ledger stream, full-width status bar). Metrics header uses four semantic state tiles (`Held`, `Reaffirmed`, `Escalated`, `Suspect`) with plain text counts. | **PASS** |
+| 5 | **Emoji icons** | Executed automated Unicode category scanner across `ui/src/` (`.ts`, `.tsx`, `.css`). Zero emoji characters (0x1F300–0x1FAFF, etc.) detected. Status devices use formal neobrutal text stamps (`HOLD`, `REAFFIRMED`, `ESCALATED`, `SUSPECT`) and clean geometric SVGs. | **PASS** |
+| 6 | **Sparkline stat tiles** | Inspected state metric count tiles. Each tile renders purely a bold monospace numerical count and tight uppercase label. Zero SVG polylines, sparkline paths, or miniature trend curves. | **PASS** |
+| 7 | **Default component-library look** | UI uses no component library (no Bootstrap, MUI, Chakra, or generic Tailwind defaults). Custom Vanilla CSS tokens enforce strict minimalist neobrutalism: solid 2-3px near-black borders (`#181716`), hard 3px offset zero-blur shadows, 0px border-radius, serif display headings, monospace metadata. | **PASS** |
+| 8 | **Placeholder copy** | Inspected all strings in UI and API presentation layers. Zero "Lorem ipsum", "foo", "bar", or dummy text. Explainer text communicates tool function in 5 seconds; domain labels derive directly from FDA Food Safety Modernization Act (FSMA) pack vocabulary (`packs/food/vocabulary.yaml`). | **PASS** |
+| 9 | **Blurred shadows** | Inspected all `box-shadow` and SVG filter definitions. Zero shadows have blur radius > 0px. All shadows strictly use `--shadow-interactive: 3px 3px 0px #181716` and `--shadow-interactive-sm: 2px 2px 0px #181716`, applied exclusively to interactive hover and selected states. | **PASS** |
+
+---
+
+### 8.3 Usability Requirements Audit (1–12)
+
+1. **First Screen Primary Action & 5-Second Comprehension**:
+   - Primary action: `INVESTIGATE RECALL` (height 48px, 3px solid border, hard offset shadow).
+   - 5-second explainer: *"When a trusted fact is retracted, Tainted traces every batch and customer resting on it, holds compromised lots, and reaffirms clean inventory with mathematical proof."*
+   - Status: **PASS**.
+2. **Plain-Language Labels from Pack Vocabulary**:
+   - All domain terms derive directly from `packs/food/vocabulary.yaml` (`quarantine_hold`, `customer_advisory_notice`, `logistics_recall_interception`, `listeria_monocytogenes`, `calibrated_pt100_telemetry`, etc.) and are surfaced dynamically via `/api/registry`.
+   - Status: **PASS**.
+3. **Primary View State & Counts**:
+   - Displays 4 distinct state metric tiles: `Held`, `Reaffirmed`, `Escalated`, `Suspect`.
+   - Next Human Action callout bar: *"NEXT HUMAN ACTION: Operator review required: Adjudicate Quarantine Hold for target..."* (or *"No manual actions pending. All graph paths verified by policy."* when queue is clear).
+   - Status: **PASS**.
+4. **"Needs a Person" Queue with One Obvious Button per Item**:
+   - Dedicated "Review Queue" tab lists pending human actions with drafted notices and causal trajectory links.
+   - Each item features exactly one high-contrast primary button: `APPROVE ACTION`.
+   - Status: **PASS**.
+5. **System Status Bar with Plain Sentence and Time to Scope**:
+   - Bottom status bar displays live plain sentence status (`System standing by on active tenant graph. All nodes verified by policy.`) and benchmark timing (`TIME TO SCOPE: 3.4 ms · NODES: 130 · EDGES: 252`).
+   - Status: **PASS**.
+6. **Why Path Opens in $\le 2$ Interactions with Selectable Links**:
+   - Clicking any graph node or review queue item immediately opens the Why Drawer ($\le 2$ clicks).
+   - Every causal hop link in the drawer is keyboard focusable (`Tab`), selectable (`Enter`/Click), and instantly highlights the node and its causal edges on the SVG canvas.
+   - Status: **PASS**.
+7. **Designed Empty, Loading, Error and Offline States**:
+   - Empty state: Clean neobrutal container with zero mock data and explicit prompt to trigger investigation.
+   - Loading state: Discrete stepped indicator (`HANDSHAKE: ACTIVE`) respecting `prefers-reduced-motion`.
+   - Offline / Error banner: `[OFFLINE / STANDBY]` with one-click retry button.
+   - Status: **PASS**.
+8. **Full Keyboard Operation with Visible Focus**:
+   - All interactive controls have tabindex, keyboard listeners (`Enter`, `Space`, `ESC` to close Why Drawer), and high-contrast visible focus outline (`outline: 3px solid var(--ink-primary); outline-offset: 2px`).
+   - Status: **PASS**.
+9. **44 px Touch Targets & 390 px Mobile Layout**:
+   - All buttons enforce `.touch-target-44` (min-height and min-width 44px).
+   - Layout tested and verified responsive at 390px, 1024px, and 1440px widths with clean wrapping and zero horizontal overflow.
+   - Status: **PASS**.
+10. **Text Contrast $\ge 4.5:1$**:
+    - All ink tokens exceed WCAG 2.1 AA 4.5:1 against base paper (`#F7F4EC`) and elevated paper (`#EFECE3`).
+    - Status: **PASS**.
+11. **No Dead Ends**:
+    - Every state container, empty state, error state, and drawer provides clear operational action paths.
+    - Status: **PASS**.
+12. **Adding Status or Vocabulary Needs No Frontend Edit**:
+    - `/api/registry` dynamically serves statuses, design tokens, and domain vocabulary merged from `packs/*/vocabulary.yaml`.
+    - UI dynamically maps stamps and vocabulary lookups through `registry.statuses` and `registry.vocabulary`.
+    - Status: **PASS**.
+
+---
+
+### 8.4 Multi-Resolution Verification Screenshot Index
+
+All screenshots captured into `docs/screens/` using Playwright:
+
+| Step | Prefix | 1440px Desktop | 1024px Tablet | 390px Mobile |
+| :--- | :--- | :---: | :---: | :---: |
+| Step 0 | Initial Baseline | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step0_initial_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step0_initial_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step0_initial_390px.png) |
+| Step 1 | Tokens & Neo Design System | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step1_tokens_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step1_tokens_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step1_tokens_390px.png) |
+| Step 2 | Shell & Layout | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step2_shell_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step2_shell_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step2_shell_390px.png) |
+| Step 3 | Graph Canvas & Stamps | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step3_canvas_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step3_canvas_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step3_canvas_390px.png) |
+| Step 4 | Why Drawer & Causal Strip | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step4_why_drawer_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step4_why_drawer_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step4_why_drawer_390px.png) |
+| Step 5 | State Screens & Overlays | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step5_states_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step5_states_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step5_states_390px.png) |
+| Step 6 | Copy Pass & Vocabulary | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step6_copy_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step6_copy_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step6_copy_390px.png) |
