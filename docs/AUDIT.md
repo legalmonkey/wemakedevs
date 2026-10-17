@@ -2319,5 +2319,111 @@ Total Suite Elapsed:     289.38s
 
 Status: **PASS** (Zero null causal paths, 100% edge confirmation, 100% lateral recall).
 
+---
+
+## Item 5: UI Presentation, Tile Exclusivity, and Timing Disclosure
+
+### 1. Tile Exclusivity and Zero Suspect Verification (`python scripts/verify_item5_ui_presentation.py`)
+
+#### Command Executed
+`python scripts/verify_item5_ui_presentation.py`
+
+#### Raw Verbatim Output
+```
+=========================================================================================================
+ITEM 5: MUTUALLY EXCLUSIVE UI STATE TILES & SUSPECT=0 AT COMPLETION ON 5 SEEDS
+=========================================================================================================
+
+Evaluating seeds: [101, 202, 303, 4812, 31337]
+
+Seed   | Total  | Held   | Reaffirmed  | Escalated  | Unaffected  | Tile Sum  | Suspect  | Status
+---------------------------------------------------------------------------------------------------------
+101    | 35     | 28     | 5           | 2          | 0           | 35        | 0        | PASS (EXACT)
+202    | 34     | 29     | 3           | 2          | 0           | 34        | 0        | PASS (EXACT)
+303    | 33     | 25     | 5           | 1          | 2           | 33        | 0        | PASS (EXACT)
+4812   | 30     | 25     | 4           | 1          | 0           | 30        | 0        | PASS (EXACT)
+31337  | 35     | 29     | 4           | 2          | 0           | 35        | 0        | PASS (EXACT)
+---------------------------------------------------------------------------------------------------------
+
+[ALL CHECKS PASSED] Four tiles are strictly mutually exclusive (sum == total) and suspect == 0.
+```
+
+### 2. Pytest Discovery & Execution (`tests/audit/test_demand5_ui_tile_exclusivity.py`)
+
+#### Command Executed
+`python -m pytest tests/audit/test_demand5_ui_tile_exclusivity.py -v`
+
+#### Raw Verbatim Output
+```
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\SHIVANSH\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\SHIVANSH\wemakedevs
+configfile: pytest.ini
+plugins: anyio-4.12.0, asyncio-1.4.0, cov-7.1.0, mock-3.15.1, playwright-0.10.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+tests/audit/test_demand5_ui_tile_exclusivity.py::test_ui_tiles_mutually_exclusive_and_suspect_zero_at_completion[101] PASSED [ 20%]
+tests/audit/test_demand5_ui_tile_exclusivity.py::test_ui_tiles_mutually_exclusive_and_suspect_zero_at_completion[202] PASSED [ 40%]
+tests/audit/test_demand5_ui_tile_exclusivity.py::test_ui_tiles_mutually_exclusive_and_suspect_zero_at_completion[303] PASSED [ 60%]
+tests/audit/test_demand5_ui_tile_exclusivity.py::test_ui_tiles_mutually_exclusive_and_suspect_zero_at_completion[4812] PASSED [ 80%]
+tests/audit/test_demand5_ui_tile_exclusivity.py::test_ui_tiles_mutually_exclusive_and_suspect_zero_at_completion[31337] PASSED [100%]
+
+============================= 5 passed in 18.28s ==============================
+```
+
+### 3. Production Compilation & ESLint Validation
+
+#### Command Executed (Build)
+`npm run build` in `ui/`
+
+#### Raw Verbatim Output
+```
+> ui@0.1.0 build
+> next build
+
+▲ Next.js 16.2.12 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1880ms
+  Running TypeScript ...
+  Finished TypeScript in 2.7s ...
+  Collecting page data using 4 workers ...
+  Generating static pages using 4 workers (0/3) ...
+✓ Generating static pages using 4 workers (3/3) in 587ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+└ ○ /_not-found
+
+○  (Static)  prerendered as static content
+```
+
+#### Command Executed (Lint)
+`npm run lint` in `ui/`
+
+#### Raw Verbatim Output
+```
+> ui@0.1.0 lint
+> eslint
+```
+
+### 4. Timing Disclosure and UI Invariants
+1. **Four Mutually Exclusive State Tiles**:
+   - `Held`, `Reaffirmed`, `Escalated`, `Unaffected` strictly sum to total units across all seeds.
+   - Denominators are rendered on each tile (e.g. `7 of 35 batches`, `3 of 35 batches`, etc.).
+   - `Suspect` count is 0 at completion on every seed; the active-run suspect tile is hidden when the episode is closed.
+2. **Dual Timing Numbers**:
+   - Status bar reports: `TIME TO SCOPE: <timeToScopeMs> ms (GRAPH OP) · <wallClockMs>s (WALL-CLOCK PACED)`.
+   - Explanatory disclosure displayed: `* Presentation pacing delay (120ms/step) enables human observation; native FalkorDB graph traversal executes in <timeToScopeMs> ms.`
+3. **Multi-Resolution Recaptured Production Screenshots**:
+   - Desktop 1440px: [after_1440px.png](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/after_1440px.png)
+   - Mobile 390px: [after_390px.png](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/after_390px.png)
+
+Status: **PASS** (Zero lint errors, zero build errors, 100% tile exclusivity invariant verified).
+
+
 
 

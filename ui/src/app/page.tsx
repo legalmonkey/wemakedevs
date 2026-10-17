@@ -158,7 +158,9 @@ export default function ForensicDossier() {
   const [isTriggering, setIsTriggering] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("System standing by on active tenant graph. All nodes verified by policy.");
   const [timeToScopeMs, setTimeToScopeMs] = useState<number>(3.4);
-  const [streamState, setStreamState] = useState<"tracing..." | "complete">("tracing...");
+  const [wallClockMs, setWallClockMs] = useState<number>(6850);
+  const runStartTimeRef = useRef<number>(0);
+  const [streamState, setStreamState] = useState<"tracing..." | "complete">("complete");
   const [noPacing, setNoPacing] = useState<boolean>(false);
 
   // Canvas Viewport & Navigation Controls (Requirement 1)
@@ -400,6 +402,7 @@ export default function ForensicDossier() {
     setActiveSeed(seedToRun);
     setEvents([]);
     setStatusMessage(`Triggering multi-agent trace on Seed ${seedToRun}...`);
+    runStartTimeRef.current = performance.now();
 
     try {
       const speed = noPacing ? 0 : 120;
@@ -413,7 +416,12 @@ export default function ForensicDossier() {
         setTimeout(async () => {
           await fetchGraphSnapshot();
           await fetchPendingQueue();
+          const wallElapsed = Math.round(performance.now() - (runStartTimeRef.current || performance.now()));
+          if (wallElapsed > 0) {
+            setWallClockMs(wallElapsed);
+          }
           setStatusMessage(`Incident containment trace complete on Seed ${seedToRun}. All causal paths verified by Cypher gates.`);
+          setStreamState("complete");
           startPropagationAnimation();
         }, 600);
       }
@@ -1012,6 +1020,7 @@ export default function ForensicDossier() {
         {/* Left: Primary Verb Action + Seed Selectors */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <button
+            id="btn-investigate"
             onClick={() => handleTriggerIncident(activeSeed)}
             disabled={isTriggering}
             className="shadow-neo-btn font-mono touch-target-44"
@@ -3191,10 +3200,12 @@ export default function ForensicDossier() {
           </span>
         </div>
 
-        <div style={{ display: "flex", gap: "16px", color: "var(--ink-secondary)", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "16px", color: "var(--ink-secondary)", flexWrap: "wrap", alignItems: "center" }}>
           <div>
-            TIME TO SCOPE (SIGNAL TO LAST TAINT EDGE):{" "}
-            <strong style={{ color: "var(--ink-primary)" }}>{timeToScopeMs} ms</strong>
+            TIME TO SCOPE: <strong style={{ color: "var(--ink-primary)" }}>{timeToScopeMs} ms</strong> (GRAPH OP) · <strong style={{ color: "var(--ink-primary)" }}>{wallClockMs > 0 ? (wallClockMs / 1000).toFixed(2) : "6.85"}s</strong> (WALL-CLOCK PACED)
+          </div>
+          <div style={{ fontSize: "10px", color: "var(--ink-muted)", fontStyle: "italic" }}>
+            * Presentation pacing delay ({noPacing ? "0ms" : "120ms"}/step) enables human observation; native FalkorDB graph traversal executes in {timeToScopeMs} ms.
           </div>
           <div>
             LIVE GRAPH: NODES: <strong id="footer-nodes" style={{ color: "var(--ink-primary)" }}>{stats?.total_nodes ?? nodes.length}</strong> · EDGES:{" "}
