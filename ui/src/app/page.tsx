@@ -158,12 +158,15 @@ export default function ForensicDossier() {
   const [isTriggering, setIsTriggering] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("System standing by on active tenant graph. All nodes verified by policy.");
   const [timeToScopeMs, setTimeToScopeMs] = useState<number>(3.4);
+  const [streamState, setStreamState] = useState<"tracing..." | "complete">("tracing...");
+  const [noPacing, setNoPacing] = useState<boolean>(false);
 
   // Canvas Viewport & Navigation Controls (Requirement 1)
   const [zoom, setZoom] = useState<number>(1.0);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchDistanceRef = useRef<number | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Collapsible Right Drawer for Ledger & Cypher Log (Requirement 1 & 6)
@@ -251,6 +254,9 @@ export default function ForensicDossier() {
         setNodes(data.nodes || []);
         setEdges(data.edges || []);
         setStats(data.stats || null);
+        if (typeof data.stats?.time_to_scope_ms === "number") {
+          setTimeToScopeMs(Number(data.stats.time_to_scope_ms.toFixed(2)));
+        }
         setApiOnline(true);
         setApiError(null);
       }
@@ -312,7 +318,12 @@ export default function ForensicDossier() {
         const parsed = JSON.parse(e.data);
         if (parsed.event_type) {
           setEvents((prev) => [parsed, ...prev.slice(0, 99)]);
-          if (parsed.event_type === "agent.status") {
+          if (parsed.event_type === "episode.closed") {
+            setStreamState("complete");
+            if (parsed.payload?.message) {
+              setStatusMessage(String(parsed.payload.message));
+            }
+          } else if (parsed.event_type === "agent.status") {
             setAgentStatus(parsed.payload?.status || "ACTIVE");
             if (parsed.payload?.message) {
               setStatusMessage(String(parsed.payload.message));
@@ -385,24 +396,23 @@ export default function ForensicDossier() {
   // Trigger live multi-agent incident run
   const handleTriggerIncident = async (seedToRun: number) => {
     setIsTriggering(true);
+    setStreamState("tracing...");
     setActiveSeed(seedToRun);
     setEvents([]);
     setStatusMessage(`Triggering multi-agent trace on Seed ${seedToRun}...`);
-    const startTime = performance.now();
 
     try {
+      const speed = noPacing ? 0 : 120;
       const res = await fetch(`${API_BASE}/api/incident/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seed: seedToRun, speed_ms: 120 }),
+        body: JSON.stringify({ seed: seedToRun, speed_ms: speed }),
       });
       if (res.ok) {
         setAgentStatus("ACTIVE");
         setTimeout(async () => {
           await fetchGraphSnapshot();
           await fetchPendingQueue();
-          const elapsed = performance.now() - startTime;
-          setTimeToScopeMs(Number(elapsed.toFixed(1)));
           setStatusMessage(`Incident containment trace complete on Seed ${seedToRun}. All causal paths verified by Cypher gates.`);
           startPropagationAnimation();
         }, 600);
@@ -465,6 +475,10 @@ export default function ForensicDossier() {
       if (res.ok) {
         const report = await res.json();
         setEvalReport(report);
+        const matchInc = report.incidents?.find((i: EvaluationIncident) => i.seed === activeSeed);
+        if (matchInc) {
+          setTimeToScopeMs(Number(matchInc.duration_ms.toFixed(2)));
+        }
       }
     } catch (err) {
       console.error("Evaluation run failed", err);
@@ -503,6 +517,106 @@ export default function ForensicDossier() {
     return id.slice(-8);
   }, []);
 
+  // Compute 4 dynamic counts - STRICTLY COUNTING UNITS ONLY (Requirements 1 & 5)
+  const unitCounts = useMemo(() => {
+    const unitNodes = nodes.filter((n) => (n.role || "").toLowerCase() === "unit");
+    const unitIdSet = new Set(unitNodes.map((u) => u.id));
+    const total = unitNodes.length || stats?.total_units || 0;
+
+    // Requirement 1: Escalated tile counts Units that have a decision with verdict unverifiable or an escalation action, not u.verdict
+    const unverifiableDecisionIds = new Set(
+      nodes
+        .filter(
+          (n) =>
+            (n.role || "").toLowerCase() === "decision" &&
+            (n.properties?.verdict === "unverifiable" || (n.status || "").toLowerCase() === "unverifiable")
+        )
+        .map((n) => n.id)
+    );
+
+    const escalationActionTargetIds = new Set<string>();
+    nodes.forEach((n) => {
+      if (
+        (n.role || "").toLowerCase() === "action" &&
+        (n.properties?.action_kind === "escalate_human" || n.kind === "escalate_human")
+      ) {
+        if (n.properties?.target_entity_id) {
+          escalationActionTargetIds.add(String(n.properties.target_entity_id));
+        }
+      }
+    });
+    pendingQueue.forEach((item) => {
+      if (item.action_kind === "escalate_human" && item.target_entity_id) {
+        escalationActionTargetIds.add(item.target_entity_id);
+      }
+    });
+
+    const unitsWithUnvDecision = new Set<string>();
+    edges.forEach((e) => {
+      if (unverifiableDecisionIds.has(e.source_id) && unitIdSet.has(e.target_id)) {
+        unitsWithUnvDecision.add(e.target_id);
+      }
+      if (unverifiableDecisionIds.has(e.target_id) && unitIdSet.has(e.source_id)) {
+        unitsWithUnvDecision.add(e.source_id);
+      }
+      if (
+        nodes.some(
+          (n) =>
+            n.id === e.source_id &&
+            (n.role || "").toLowerCase() === "action" &&
+            n.properties?.action_kind === "escalate_human"
+        ) &&
+        unitIdSet.has(e.target_id)
+      ) {
+        escalationActionTargetIds.add(e.target_id);
+      }
+    });
+
+    const escalatedUnitIds = new Set<string>();
+    unitNodes.forEach((u) => {
+      if (unitsWithUnvDecision.has(u.id) || escalationActionTargetIds.has(u.id)) {
+        escalatedUnitIds.add(u.id);
+      }
+    });
+    const escalated = escalatedUnitIds.size;
+
+    // Suspect Units: flagged suspect OR connected via lateral links (e.g. SHARED_LOT or LATERAL_LINK)
+    const lateralUnitIds = new Set<string>();
+    edges.forEach((e) => {
+      if (e.is_lateral || e.kind === "SHARED_LOT" || e.kind === "LATERAL_LINK") {
+        if (unitIdSet.has(e.target_id)) lateralUnitIds.add(e.target_id);
+      }
+    });
+
+    let held = 0;
+    let reaffirmed = 0;
+    let suspect = 0;
+
+    unitNodes.forEach((u) => {
+      const s = (u.status || "").toLowerCase();
+      const stamp = (u.stamp_text || "").toUpperCase();
+      const verdict = String(u.properties?.verdict || "").toLowerCase();
+
+      if (verdict === "reaffirmed" || s === "reaffirmed" || stamp === "REAFFIRMED") {
+        reaffirmed++;
+      }
+      if (verdict === "tainted" || s === "tainted" || s === "quarantined" || stamp === "HOLD") {
+        held++;
+      }
+      if (
+        u.properties?.is_suspect ||
+        u.properties?.suspect ||
+        s === "suspect" ||
+        stamp === "SUSPECT" ||
+        lateralUnitIds.has(u.id)
+      ) {
+        suspect++;
+      }
+    });
+
+    return { held, reaffirmed, escalated, suspect, total, escalatedUnitIds };
+  }, [nodes, edges, pendingQueue, stats]);
+
   // Filter nodes according to active filter chip (Requirement 3)
   const displayedNodes = useMemo(() => {
     if (nodes.length === 0) return [];
@@ -526,10 +640,11 @@ export default function ForensicDossier() {
     }
     if (activeFilter === "escalated") {
       return nodes.filter((n) => {
+        const isEscUnit = unitCounts.escalatedUnitIds?.has(n.id);
         const s = (n.status || "").toLowerCase();
         const stamp = (n.stamp_text || "").toUpperCase();
         const verdict = String(n.properties?.verdict || "").toLowerCase();
-        return stamp === "ESCALATED" || s === "escalated" || s === "unverifiable" || verdict === "unverifiable";
+        return isEscUnit || stamp === "ESCALATED" || s === "escalated" || s === "unverifiable" || verdict === "unverifiable";
       });
     }
     if (activeFilter === "suspect") {
@@ -552,7 +667,7 @@ export default function ForensicDossier() {
 
     // Default "all": show active incident nodes
     return nodes;
-  }, [nodes, edges, activeFilter]);
+  }, [nodes, edges, activeFilter, unitCounts.escalatedUnitIds]);
 
   const displayedEdges = useMemo(() => {
     const nodeSet = new Set(displayedNodes.map((n) => n.id));
@@ -686,35 +801,6 @@ export default function ForensicDossier() {
       colSpacing,
     };
   }, [displayedNodes, displayedEdges, roleOrder]);
-
-  // Compute 4 dynamic counts - STRICTLY COUNTING UNITS ONLY (Requirement 5)
-  const unitCounts = useMemo(() => {
-    const unitNodes = nodes.filter((n) => (n.role || "").toLowerCase() === "unit");
-    const total = unitNodes.length || stats?.total_units || 0;
-
-    let held = 0;
-    let reaffirmed = 0;
-    let escalated = 0;
-    let suspect = 0;
-
-    unitNodes.forEach((u) => {
-      const s = (u.status || "").toLowerCase();
-      const stamp = (u.stamp_text || "").toUpperCase();
-      const verdict = String(u.properties?.verdict || "").toLowerCase();
-
-      if (stamp === "REAFFIRMED" || s === "reaffirmed" || verdict === "reaffirmed") {
-        reaffirmed++;
-      } else if (stamp === "ESCALATED" || s === "escalated" || s === "unverifiable" || verdict === "unverifiable") {
-        escalated++;
-      } else if (stamp === "HOLD" || s === "tainted" || s === "quarantined" || verdict === "tainted") {
-        held++;
-      } else if (stamp === "SUSPECT" || s === "suspect" || Boolean(u.properties?.is_suspect)) {
-        suspect++;
-      }
-    });
-
-    return { held, reaffirmed, escalated, suspect, total };
-  }, [nodes, stats]);
 
   // Filter agent.status noise with no entities (Requirement 6)
   const visibleEvents = useMemo(() => {
@@ -922,7 +1008,7 @@ export default function ForensicDossier() {
             SEEDS:
           </span>
 
-          {[101, 202, 303].map((seed) => (
+          {[101, 202, 303, 4812].map((seed) => (
             <button
               key={seed}
               onClick={() => handleTriggerIncident(seed)}
@@ -959,6 +1045,37 @@ export default function ForensicDossier() {
           >
             + Fresh Seed
           </button>
+
+          {/* Stream Pacing Mode Badge & Toggle (Requirement 3) */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "4px" }}>
+            <span
+              className="border-neo font-mono"
+              style={{
+                padding: "5px 10px",
+                fontSize: "10px",
+                fontWeight: 700,
+                backgroundColor: noPacing ? "var(--bg-paper-sunken)" : "var(--bg-paper-elevated)",
+                color: "var(--ink-primary)",
+              }}
+            >
+              STREAM: {noPacing ? "LIVE UNPACED (0ms)" : "LIVE PACED (120ms)"}
+            </span>
+            <button
+              onClick={() => setNoPacing((prev) => !prev)}
+              className="font-mono border-neo touch-target-44"
+              style={{
+                padding: "5px 10px",
+                fontSize: "10px",
+                fontWeight: 700,
+                backgroundColor: noPacing ? "var(--ink-primary)" : "var(--bg-paper)",
+                color: noPacing ? "var(--bg-paper)" : "var(--ink-primary)",
+                cursor: "pointer",
+              }}
+              title="Toggle between artificial pacing delay (120ms) and unpaced instant multi-agent execution"
+            >
+              NO PACING: {noPacing ? "ON" : "OFF"}
+            </button>
+          </div>
         </div>
 
         {/* Right: Four Distinct Neobrutalist State Counts Tiles (Units Only with Denominator - Requirement 5) */}
@@ -1324,19 +1441,44 @@ export default function ForensicDossier() {
                   </div>
                 </div>
 
-                {/* 3 Rubber Stamps */}
+                {/* 3 Rubber Stamps (Vocabulary / Registry Bound) */}
                 <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", fontSize: "11px" }} className="font-mono">
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span className="forensic-stamp stamp-taint" style={{ fontSize: "8px", padding: "1px 6px" }}>HOLD</span>
-                    <span style={{ color: "var(--ink-secondary)" }}>Withheld from market; verified contaminated on causal path</span>
+                    <span style={{ color: "var(--ink-secondary)" }}>
+                      {registry?.statuses?.find((s) => s.stamp_text === "HOLD" || s.id === "status_tainted")?.description ||
+                        registry?.vocabulary?.stamp_hold_copy ||
+                        "Lost independent support; held."}
+                    </span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span className="forensic-stamp stamp-reaffirm" style={{ fontSize: "8px", padding: "1px 6px" }}>REAFFIRMED</span>
-                    <span style={{ color: "var(--ink-secondary)" }}>Mathematically isolated &amp; cleared for distribution</span>
+                    <span style={{ color: "var(--ink-secondary)" }}>
+                      {registry?.statuses?.find((s) => s.stamp_text === "REAFFIRMED" || s.id === "status_reaffirmed")?.description ||
+                        registry?.vocabulary?.stamp_reaffirmed_copy ||
+                        "Independent valid support remains; cleared."}
+                    </span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span className="forensic-stamp stamp-suspect" style={{ fontSize: "8px", padding: "1px 6px" }}>SUSPECT</span>
-                    <span style={{ color: "var(--ink-secondary)" }}>Shared equipment lateral hop contact; audit pending</span>
+                    <span style={{ color: "var(--ink-secondary)" }}>
+                      {registry?.statuses?.find((s) => s.stamp_text === "SUSPECT" || s.id === "status_suspect")?.description ||
+                        registry?.vocabulary?.stamp_suspect_copy ||
+                        "Evidence from the retracted source, not yet re-judged."}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: "22px",
+                        height: "0px",
+                        borderTop: "2px dashed var(--signal-suspect)",
+                      }}
+                    />
+                    <span style={{ color: "var(--ink-secondary)" }}>
+                      <strong>LATERAL LINKS:</strong> Lateral links are dashed arcs.
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1511,7 +1653,7 @@ export default function ForensicDossier() {
             </div>
           </div>
 
-          {/* SVG Canvas Stage (Requirement 1 & 2) */}
+          {/* SVG Canvas Stage (Requirement 1, 2 & 6) */}
           <div
             ref={canvasContainerRef}
             className="border-neo"
@@ -1539,9 +1681,43 @@ export default function ForensicDossier() {
               setIsDragging(false);
               setHoveredNode(null);
             }}
+            onTouchStart={(e) => {
+              if (e.touches.length === 1) {
+                setIsDragging(true);
+                dragStartRef.current = { x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y };
+              } else if (e.touches.length === 2) {
+                const dist = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                touchDistanceRef.current = dist;
+              }
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length === 1 && isDragging) {
+                setPan({
+                  x: e.touches[0].clientX - dragStartRef.current.x,
+                  y: e.touches[0].clientY - dragStartRef.current.y,
+                });
+              } else if (e.touches.length === 2 && touchDistanceRef.current) {
+                const dist = Math.hypot(
+                  e.touches[0].clientX - e.touches[1].clientX,
+                  e.touches[0].clientY - e.touches[1].clientY
+                );
+                const factor = dist / touchDistanceRef.current;
+                if (Math.abs(factor - 1) > 0.05) {
+                  setZoom((z) => Math.min(Math.max(Number((z * factor).toFixed(2)), 0.3), 3.0));
+                  touchDistanceRef.current = dist;
+                }
+              }
+            }}
+            onTouchEnd={() => {
+              setIsDragging(false);
+              touchDistanceRef.current = null;
+            }}
             style={{
               flex: 1,
-              minHeight: "75vh",
+              minHeight: 0,
               width: "100%",
               height: "100%",
               backgroundColor: "var(--bg-paper-sunken)",
@@ -1554,6 +1730,29 @@ export default function ForensicDossier() {
               userSelect: "none",
             }}
           >
+            {/* Visible Mobile Touch Pan/Zoom Hint Banner (Requirement 6) */}
+            <div
+              className="font-mono border-neo"
+              style={{
+                position: "absolute",
+                top: "12px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                backgroundColor: "var(--bg-paper)",
+                padding: "4px 14px",
+                fontSize: "11px",
+                fontWeight: 700,
+                color: "var(--ink-secondary)",
+                zIndex: 10,
+                pointerEvents: "none",
+                boxShadow: "var(--shadow-interactive)",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              <span>DRAG TO MOVE</span>
+            </div>
             {displayedNodes.length === 0 ? (
               <div
                 style={{
@@ -2455,7 +2654,7 @@ export default function ForensicDossier() {
                     className="font-body"
                     style={{ fontSize: "12px", color: "var(--ink-secondary)", marginTop: "4px" }}
                   >
-                    Targeted causal containment vs blanket recall (lower is better: smaller share of supply chain halted while preserving 100% causal precision)
+                    Targeted causal containment vs blanket recall (lower is better: smaller share of supply chain halted while preserving complete causal containment)
                   </div>
                 </div>
 
@@ -2535,7 +2734,7 @@ export default function ForensicDossier() {
                     <tr className="border-neo-bottom font-mono" style={{ textAlign: "left", color: "var(--ink-secondary)" }}>
                       <th style={{ padding: "10px 16px" }}>INCIDENT ID</th>
                       <th style={{ padding: "10px 16px" }}>SEED</th>
-                      <th style={{ padding: "10px 16px" }}>DURATION</th>
+                      <th style={{ padding: "10px 16px" }}>TIME TO SCOPE (SIGNAL TO LAST TAINT EDGE)</th>
                       <th style={{ padding: "10px 16px" }}>BLANKET UNITS</th>
                       <th style={{ padding: "10px 16px" }}>TAINTED UNITS</th>
                       <th style={{ padding: "10px 16px" }}>REAFFIRMED</th>
@@ -2923,19 +3122,35 @@ export default function ForensicDossier() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: "260px" }}>
-          <span style={{ color: "var(--signal-reaffirm)", fontWeight: 700 }}>●</span>
+          <span style={{ color: streamState === "complete" ? "var(--signal-reaffirm)" : "var(--signal-suspect)", fontWeight: 700 }}>●</span>
           <span style={{ color: "var(--ink-primary)", fontWeight: 500 }}>
+            STATUS:{" "}
+            <strong
+              id="footer-status"
+              style={{
+                color: streamState === "complete" ? "var(--signal-reaffirm)" : "var(--signal-suspect)",
+                textTransform: "lowercase",
+                padding: "1px 6px",
+                border: "1px solid currentColor",
+                marginRight: "6px",
+              }}
+            >
+              {streamState}
+            </strong>
             {statusMessage}
           </span>
         </div>
 
         <div style={{ display: "flex", gap: "16px", color: "var(--ink-secondary)", flexWrap: "wrap" }}>
           <div>
-            TIME TO SCOPE: <strong style={{ color: "var(--ink-primary)" }}>{timeToScopeMs} ms</strong>
+            TIME TO SCOPE (SIGNAL TO LAST TAINT EDGE):{" "}
+            <strong style={{ color: "var(--ink-primary)" }}>{timeToScopeMs} ms</strong>
           </div>
           <div>
-            NODES: <strong style={{ color: "var(--ink-primary)" }}>{nodes.length || stats?.total_nodes || 0}</strong> · EDGES:{" "}
-            <strong style={{ color: "var(--ink-primary)" }}>{edges.length || stats?.total_edges || 0}</strong>
+            LIVE GRAPH: NODES: <strong id="footer-nodes" style={{ color: "var(--ink-primary)" }}>{stats?.total_nodes ?? nodes.length}</strong> · EDGES:{" "}
+            <strong id="footer-edges" style={{ color: "var(--ink-primary)" }}>
+              {stats?.total_edges ?? edges.length}
+            </strong>
           </div>
         </div>
       </footer>

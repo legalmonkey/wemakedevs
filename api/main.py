@@ -72,6 +72,15 @@ def load_registry_data() -> dict:
                             for term in pv.get(cat, []):
                                 if isinstance(term, str) and term not in data["vocabulary"]:
                                     data["vocabulary"][term] = term.replace("_", " ").title()
+                        stamps_dict = pv.get("stamps") or pv.get("stamp_descriptions")
+                        if isinstance(stamps_dict, dict):
+                            for s_key, s_val in stamps_dict.items():
+                                data["vocabulary"][f"stamp_{s_key.lower()}_copy"] = s_val
+                                for st in data.get("statuses", []):
+                                    st_id = st.get("id", "").lower()
+                                    st_stamp = st.get("stamp_text", "").lower()
+                                    if s_key.lower() in (st_stamp, st_id) or (s_key.lower() == "hold" and "taint" in st_id):
+                                        st["description"] = s_val
             except Exception:
                 pass
 

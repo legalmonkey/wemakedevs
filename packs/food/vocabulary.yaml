@@ -36,3 +36,13 @@ actions:
   - "customer_advisory_notice"
   - "logistics_recall_interception"
   - "regulatory_report_filing"
+
+stamps:
+  suspect: "Evidence from the retracted source, not yet re-judged."
+  hold: "Lost independent support; held."
+  reaffirmed: "Independent valid support remains; cleared."
+
+stamp_descriptions:
+  suspect: "Evidence from the retracted source, not yet re-judged."
+  hold: "Lost independent support; held."
+  reaffirmed: "Independent valid support remains; cleared."

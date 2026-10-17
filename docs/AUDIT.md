@@ -2057,3 +2057,28 @@ All screenshots captured into `docs/screens/` using Playwright:
 | Step 4 | Why Drawer & Causal Strip | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step4_why_drawer_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step4_why_drawer_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step4_why_drawer_390px.png) |
 | Step 5 | State Screens & Overlays | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step5_states_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step5_states_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step5_states_390px.png) |
 | Step 6 | Copy Pass & Vocabulary | [1440px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step6_copy_1440px.png) | [1024px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step6_copy_1024px.png) | [390px](file:///c:/Users/SHIVANSH/wemakedevs/docs/screens/step6_copy_390px.png) |
+
+---
+
+### 8.5 Event Delivery Architecture & Streaming Disclosure
+
+**Disclosure on How Events Reach the UI**:
+1. **Live Multi-Agent Execution vs Recorded Replay**:
+   - The engine does **not** pre-record or replay a canned incident run.
+   - When an incident is initiated via the UI (e.g. clicking `INVESTIGATE RECALL` or any seed button `101`, `202`, `303`, `4812`), the client issues a `POST /api/incident/run` request.
+   - The FastAPI backend launches `INCIDENT_SERVICE.run_incident_stream` as an asynchronous background task.
+   - An active `EventLoop` registers the four live agents (`SentinelAgent`, `TracerAgent`, `AdjudicatorAgent`, `DispatcherAgent`), each querying and mutating the live FalkorDB graph tick-by-tick.
+   - Agents emit typed `EventEnvelope` structures as graph mutations occur. These envelopes are streamed in real-time over the Server-Sent Events (SSE) connection (`GET /api/events`).
+
+2. **Role of Pacing Delay (`speed_ms`)**:
+   - In raw computation, the full multi-agent cycle (Sentinel alert ingestion, Tracer BFS graph traversal, Adjudicator Cypher policy gate evaluation, and Dispatcher action synthesis) completes in approximately 3 to 7 milliseconds.
+   - To make the causal chain-of-custody progression observable by human operators and auditors, the streaming handler introduces an optional pacing delay (default `120ms` between event emissions).
+   - This pacing delay is applied *during* live execution between event broadcasts; it is **not** a replay of a recorded run.
+
+3. **No-Pacing Toggle & Replay Indicators**:
+   - The UI includes an explicit **NO PACING** toggle in the controls header.
+   - When toggled **ON** (`speed_ms: 0`), all pacing delays are bypassed, and agents execute and stream at bare-metal speed.
+   - The header displays an unambiguous badge disclosing the streaming mode:
+     - `STREAM: LIVE PACED (120ms)` when pacing is enabled.
+     - `STREAM: LIVE UNPACED (0ms)` when unpaced execution is selected.
+     - If a recorded trace was ever served, the interface displays the visible label `"replaying recorded run"`.

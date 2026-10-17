@@ -9,6 +9,11 @@ fault:
   target_kind: "SensorLog"
   fault_type: "retraction"
   reason: "Instrumentation recalibration failure: sensor drift exceeded tolerance (+2.8C)"
+  drifted_sensor_count: 15
+  orphan_record_count: 3
+  faulted_tests_ratio: 0.35
+  min_independent_support: 2
+
 
 # Realistic naive recall baseline declared by scenario rule:
 naive_recall:
@@ -21,7 +26,11 @@ naive_recall:
 # Section 0 Rule & Part A rules: expect blocks are read ONLY by test assertions, NEVER by agent code.
 expect:
   min_units: 30
-  min_tainted_decisions: 1
-  min_reaffirmed_decisions: 1
+  min_tainted_units: 3
+  min_reaffirmed_units: 3
+  min_unverifiable_units: 1
+  min_tainted_decisions: 3
+  min_reaffirmed_decisions: 3
   has_lateral_link: true
   min_actions: 1
+

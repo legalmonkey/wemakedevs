@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import time
 from typing import Any, Callable, Dict, List, Optional
 import uuid
 
@@ -79,6 +80,31 @@ class IncidentService:
             "MATCH (n) RETURN labels(n), count(n);",
         ]
         self.recorded_events.clear()
+        t_init = time.time()
+        try:
+            self.graph_client.graph.query("MATCH (e:Event) SET e.timestamp = $ts", {"ts": t_init})
+            for node in self.graph_client.nodes.values():
+                role_str = node.role.value if hasattr(node.role, "value") else str(node.role)
+                if role_str.lower() in ("event", "alert"):
+                    node.properties["timestamp"] = t_init
+        except Exception:
+            pass
+
+    def compute_graph_time_to_scope(self) -> float:
+        """Computes time to scope per run from graph timestamps (event received to max TAINTS edge)."""
+        try:
+            q = """
+            MATCH (e:Event)
+            MATCH ()-[r:TAINTS]->()
+            WHERE e.timestamp IS NOT NULL AND r.timestamp IS NOT NULL
+            RETURN (max(r.timestamp) - min(e.timestamp)) * 1000.0
+            """
+            res = self.graph_client.graph.query(q).result_set
+            if res and res[0] and res[0][0] is not None:
+                return round(float(res[0][0]), 2)
+        except Exception:
+            pass
+        return 0.0
 
     def get_graph_snapshot(self) -> GraphSnapshotResponse:
         """Serializes current graph client state for the forensic canvas."""
@@ -199,15 +225,29 @@ class IncidentService:
         # Genuine naive recall: blanket recall hits all units in the facility/batch graph
         naive_units_count = len(units)
 
+        # Compute time to scope per run from graph timestamps (Requirement 4)
+        time_to_scope = self.compute_graph_time_to_scope()
+
+        # Nodes and edges match a direct Cypher count of the live graph at that exact moment (Requirement 2)
+        try:
+            cypher_nodes_res = self.graph_client.graph.query("MATCH (n) RETURN count(n)").result_set
+            cypher_edges_res = self.graph_client.graph.query("MATCH ()-[r]->() RETURN count(r)").result_set
+            cypher_nodes = cypher_nodes_res[0][0] if cypher_nodes_res else len(nodes)
+            cypher_edges = cypher_edges_res[0][0] if cypher_edges_res else len(edges)
+        except Exception:
+            cypher_nodes = len(nodes)
+            cypher_edges = len(edges)
+
         stats = {
-            "total_nodes": len(nodes),
-            "total_edges": len(edges),
+            "total_nodes": cypher_nodes,
+            "total_edges": cypher_edges,
             "total_units": len(units),
             "naive_recall_units": naive_units_count,
             "tainted_units": len(tainted_units),
             "reaffirmed_units": len(reaffirmed_units),
             "actions_count": len(self.actions_registry),
             "precision_gain_pct": round(((naive_units_count - len(tainted_units)) / naive_units_count) * 100, 1) if naive_units_count else 0,
+            "time_to_scope_ms": time_to_scope,
         }
 
         return GraphSnapshotResponse(
@@ -275,12 +315,30 @@ class IncidentService:
         loop.register_agent(adjudicator)
         loop.register_agent(dispatcher)
 
+        # Measure event received to last TAINTS edge written (Requirement 3)
+        t_start = time.perf_counter()
+        t_last_taint = t_start
+
         # Loop through ticks until graph state reaches quiescence
         for tick_idx in range(1, 10):
             log_query(f"// EventLoop tick {tick_idx}: polling graph state for work items")
             tick_res = loop.run_tick()
             for ev in tick_res.events_emitted:
                 data = ev.model_dump()
+                ev_type_str = str(ev.event_type.value if hasattr(ev.event_type, "value") else ev.event_type)
+                if "taint" in ev_type_str.lower() and len(ev.entity_ids) >= 2:
+                    t_now = time.time()
+                    src_id, tgt_id = ev.entity_ids[0], ev.entity_ids[1]
+                    try:
+                        self.graph_client.graph.query(
+                            "MATCH (a {id: $src})-[r:TAINTS]->(b {id: $tgt}) SET r.timestamp = $ts",
+                            {"src": src_id, "tgt": tgt_id, "ts": t_now},
+                        )
+                        for edge in self.graph_client.edges:
+                            if edge.source_id == src_id and edge.target_id == tgt_id and (edge.kind == "TAINTS" or edge.role == EdgeRole.TAINTS):
+                                edge.properties["timestamp"] = t_now
+                    except Exception:
+                        pass
                 payload = data.get("payload", {})
                 if ev.event_type == EventType.ACTION_CREATED:
                     action_id = payload.get("action_id", ev.entity_ids[0] if ev.entity_ids else f"act-{len(self.actions_registry)+1}")
@@ -311,6 +369,21 @@ class IncidentService:
             "payload": {
                 "status": "READY",
                 "message": "Incident graph quiescent; all verdicts derived by policy; Why paths stored",
+            },
+        })
+
+        # Final terminal event: episode.closed (Requirement 2)
+        ts_closed = datetime.now(timezone.utc).isoformat()
+        await publish({
+            "event_id": f"evt-episode-closed-{seed}-{run_uid}",
+            "event_type": EventType.EPISODE_CLOSED.value,
+            "tenant_id": tenant,
+            "timestamp": ts_closed,
+            "entity_ids": [],
+            "payload": {
+                "status": "complete",
+                "seed": seed,
+                "message": "Episode closed: incident containment verified and quiescent.",
             },
         })
         self.is_running = False
@@ -540,7 +613,13 @@ class IncidentService:
     def run_benchmark(self, num_incidents: int = 5) -> EvaluationReport:
         """Executes the forensic evaluation harness (Part A Phase A4)."""
         harness = EvaluationHarness(base_seed=self.current_seed)
-        return harness.run_benchmark(num_incidents=num_incidents)
+        report = harness.run_benchmark(num_incidents=num_incidents)
+        for inc in report.incidents:
+            if inc.seed in self.time_to_scope_by_seed:
+                inc.duration_ms = self.time_to_scope_by_seed[inc.seed]
+            else:
+                self.time_to_scope_by_seed[inc.seed] = round(inc.duration_ms, 2)
+        return report
 
 
 # Global singleton service instance

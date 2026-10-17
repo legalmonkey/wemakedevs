@@ -20,6 +20,7 @@ def generate_seeded_incident(
     num_decisions: int = 15,
     num_product_families: int = 3,
     clean: bool = True,
+    tenant_id: Optional[str] = None,
 ) -> FalkorDBGraphClient:
     """Generates a randomized incident graph using a fresh seed on FalkorDB.
 
@@ -30,8 +31,9 @@ def generate_seeded_incident(
     - Topology outcomes (tainted, reaffirmed, lateral spread) emerge purely from
       fault injection and graph traversal, not hardcoded identifiers or outcome tags.
     """
-    rng = random.Random(seed)
-    tenant_id = f"tenant-seed-{seed}-{rng.randint(100, 999)}"
+    if not tenant_id:
+        rng = random.Random(seed)
+        tenant_id = f"tenant-seed-{seed}-{rng.randint(100, 999)}"
     client = FalkorDBGraphClient(tenant_id=tenant_id, clean=clean)
 
     # 1. Generate multi-family supply chain graph topology
@@ -43,22 +45,13 @@ def generate_seeded_incident(
     )
     gen_data = generator.generate(graph_client=client)
 
-    # 2. Select fault injection target from evidence readings
-    tests = gen_data["tests"]
-    fault_target_id = tests[rng.randint(0, len(tests) - 1)]
-
-    # 3. Create AlertEvent node targeting the selected evidence reading
-    event_id = _generate_id(seed, "AlertEvent", rng.randint(1000, 9999))
-    client.add_node(
-        node_id=event_id,
-        kind="AlertEvent",
-        role=NodeRole.EVENT,
-        properties={
-            "processed": False,
-            "target_evidence_id": fault_target_id,
-            "reason": f"Randomized calibration drift alert (seed {seed})",
-        },
-    )
+    # 2. Inject declarative fault using scenario fault parameters
+    from pathlib import Path
+    from engine.injector import FaultInjector
+    scenario_path = Path(__file__).resolve().parent.parent / "scenarios" / "scenario_calibration_drift.yaml"
+    injector = FaultInjector.from_file(scenario_path, seed=seed)
+    injector.inject(client)
 
     return client
+
 

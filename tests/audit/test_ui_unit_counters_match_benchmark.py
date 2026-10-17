@@ -1,52 +1,119 @@
-"""Test Requirement 5: UI Unit Counters Strictly Count Units Only and Equal Benchmark Rows.
+"""Test Requirement 1 & 4: Cypher Parity Checks for Unit Tiles on FalkorDB.
 
 Verifies:
-1. Held, Reaffirmed, Escalated, and Suspect tiles count UNITS only (role == 'Unit' or kind == 'Batch').
-2. Non-unit nodes (Actions, Decisions, Evidence, Shipments) with stamps or verdicts are excluded.
-3. Counters strictly equal the evaluation benchmark row for the same seed.
-4. Denominator represents total units (e.g. '7 of 28 batches').
+1. Executes hand-written OpenCypher queries directly on FalkorDB for seeds 101, 202, 303, and 4812.
+2. Escalated tile counts Units that have a decision with verdict unverifiable or an escalation action, not u.verdict.
+3. Suspect tile counts Units flagged suspect or connected via lateral links.
+4. Asserts strict parity between FalkorDB Cypher queries and UI tiles.
+5. Asserts that escalated is at least 1 across all verified seeds.
 """
 
-import asyncio
+from __future__ import annotations
 import pytest
-from engine.evaluation import EvaluationHarness
 from api.incident_service import IncidentService
 
 
+CYPHER_TOTAL_HELD_REAFFIRMED_QUERY = """
+MATCH (u:Unit)
+RETURN
+  count(u) AS total_units,
+  count(CASE WHEN u.verdict = 'tainted' OR u.status IN ['tainted', 'quarantined'] THEN 1 END) AS held_units,
+  count(CASE WHEN u.verdict = 'reaffirmed' OR u.status = 'reaffirmed' THEN 1 END) AS reaffirmed_units
+"""
+
+CYPHER_ESCALATED_UNITS_QUERY = """
+MATCH (u:Unit)
+OPTIONAL MATCH (d:Decision)-[:SUPPORT|TAINTS]->(u)
+OPTIONAL MATCH (a:Action) WHERE (a.target_entity_id = u.id OR (a)-[:APPLIES_TO]->(u)) AND a.action_kind = 'escalate_human'
+WITH u, d, a
+WHERE d.verdict = 'unverifiable' OR a IS NOT NULL
+RETURN count(DISTINCT u) AS escalated_units
+"""
+
+CYPHER_SUSPECT_UNITS_QUERY = """
+MATCH (u:Unit)
+WHERE u.is_suspect = true OR (u)<-[:SHARED_LOT]-() OR (u)<-[:LATERAL_LINK]-()
+RETURN count(DISTINCT u) AS suspect_units
+"""
+
+
 @pytest.mark.asyncio
-async def test_ui_unit_counters_match_benchmark_row():
-    """Verify UI unit counting logic matches evaluation benchmark rows across multiple seeds."""
-    test_seeds = [101, 202, 303]
-    harness = EvaluationHarness(base_seed=100)
+async def test_ui_unit_counters_match_falkordb_cypher_query():
+    """Verify UI unit tiles match hand-written Cypher queries on FalkorDB for seeds 101, 202, 303, and 4812."""
+    test_seeds = [101, 202, 303, 4812]
     service = IncidentService()
 
     for seed in test_seeds:
-        # 1. Run evaluation benchmark for this seed
-        # EvaluationHarness runs incidents starting at base_seed
-        eval_harness = EvaluationHarness(base_seed=seed)
-        report = eval_harness.run_benchmark(num_incidents=1)
-        assert len(report.incidents) == 1, f"Expected 1 benchmark incident for seed {seed}"
-        bench_row = report.incidents[0]
-
-        # 2. Run incident on the API service to get the graph snapshot for the UI
+        # 1. Run multi-agent incident on this seed
         await service.run_incident_stream(seed=seed, speed_ms=0)
-        snapshot = service.get_graph_snapshot()
+        client = service.graph_client
 
-        # 3. Calculate UI counters strictly according to the UI logic
+        # 2. Execute hand-written Cypher queries directly on FalkorDB
+        cypher_base_res = client.graph.query(CYPHER_TOTAL_HELD_REAFFIRMED_QUERY)
+        assert cypher_base_res.result_set, f"Seed {seed}: Cypher base query returned no results"
+        base_row = cypher_base_res.result_set[0]
+        cypher_total = base_row[0]
+        cypher_held = base_row[1]
+        cypher_reaffirmed = base_row[2]
+
+        cypher_esc_res = client.graph.query(CYPHER_ESCALATED_UNITS_QUERY)
+        assert cypher_esc_res.result_set, f"Seed {seed}: Cypher escalated query returned no results"
+        cypher_escalated = cypher_esc_res.result_set[0][0]
+
+        cypher_sus_res = client.graph.query(CYPHER_SUSPECT_UNITS_QUERY)
+        assert cypher_sus_res.result_set, f"Seed {seed}: Cypher suspect query returned no results"
+        cypher_suspect = cypher_sus_res.result_set[0][0]
+
+        # 3. Assert on Requirement 1: Show a seed where escalated is at least 1
+        assert cypher_escalated >= 1, (
+            f"Seed {seed}: Expected escalated units >= 1, got {cypher_escalated}"
+        )
+
+        # 4. Obtain UI graph snapshot as consumed by the Evidence Canvas
+        snapshot = service.get_graph_snapshot()
         all_nodes = snapshot.nodes
         unit_nodes = [n for n in all_nodes if n.role.lower() == "unit"]
+        unit_ids = {u.id for u in unit_nodes}
         total_units = len(unit_nodes)
 
-        # Ensure there are other nodes with stamps/verdicts to verify isolation
-        non_unit_nodes_with_stamps = [
-            n for n in all_nodes
-            if n.role.lower() != "unit" and (n.stamp_text or n.properties.get("verdict"))
-        ]
-        assert len(non_unit_nodes_with_stamps) > 0, "Graph must contain non-unit nodes with stamps/verdicts"
+        # 5. Compute UI tile counter numbers exactly as page.tsx computes them
+        # (A) Escalated: Units with unverifiable decisions (via edges) or escalation actions
+        unv_dec_ids = {
+            n.id for n in all_nodes
+            if n.role.lower() == "decision" and (n.properties.get("verdict") == "unverifiable" or n.status == "unverifiable")
+        }
+        esc_action_targets = {
+            str(n.properties.get("target_entity_id"))
+            for n in all_nodes
+            if n.role.lower() == "action" and n.properties.get("action_kind") == "escalate_human"
+        }
+        # Also include registry actions
+        for act in service.actions_registry.values():
+            if act.get("action_kind") == "escalate_human" and act.get("target_entity_id"):
+                esc_action_targets.add(act["target_entity_id"])
+
+        units_with_unv_decision = set()
+        for e in snapshot.edges:
+            if e.source_id in unv_dec_ids and e.target_id in unit_ids:
+                units_with_unv_decision.add(e.target_id)
+            if e.target_id in unv_dec_ids and e.source_id in unit_ids:
+                units_with_unv_decision.add(e.source_id)
+
+        escalated_unit_ids = {
+            u.id for u in unit_nodes
+            if u.id in units_with_unv_decision or u.id in esc_action_targets
+        }
+        ui_escalated = len(escalated_unit_ids)
+
+        # (B) Suspect: units flagged suspect or connected via lateral links
+        lateral_unit_ids = set()
+        for e in snapshot.edges:
+            if e.is_lateral or e.kind in ("SHARED_LOT", "LATERAL_LINK"):
+                if e.target_id in unit_ids:
+                    lateral_unit_ids.add(e.target_id)
 
         ui_held = 0
         ui_reaffirmed = 0
-        ui_escalated = 0
         ui_suspect = 0
 
         for u in unit_nodes:
@@ -54,58 +121,41 @@ async def test_ui_unit_counters_match_benchmark_row():
             stamp = (u.stamp_text or "").upper()
             verdict = str(u.properties.get("verdict") or "").lower()
 
-            if stamp == "REAFFIRMED" or s == "reaffirmed" or verdict == "reaffirmed":
+            if verdict == "reaffirmed" or s == "reaffirmed" or stamp == "REAFFIRMED":
                 ui_reaffirmed += 1
-            elif stamp == "ESCALATED" or s == "escalated" or s == "unverifiable" or verdict == "unverifiable":
-                ui_escalated += 1
-            elif stamp == "HOLD" or s == "tainted" or s == "quarantined" or verdict == "tainted":
+            if verdict == "tainted" or s == "tainted" or s == "quarantined" or stamp == "HOLD":
                 ui_held += 1
-            elif stamp == "SUSPECT" or s == "suspect" or bool(u.properties.get("is_suspect")):
+            if (
+                u.properties.get("is_suspect")
+                or u.properties.get("suspect")
+                or s == "suspect"
+                or stamp == "SUSPECT"
+                or u.id in lateral_unit_ids
+            ):
                 ui_suspect += 1
 
-        # Denominator test: unit count must match total_units
-        assert total_units == bench_row.total_units, (
-            f"Seed {seed}: Total unit count mismatch: UI {total_units} vs Benchmark {bench_row.total_units}"
+        # 6. Strict Cypher Parity Assertions
+        assert total_units == cypher_total, (
+            f"Seed {seed}: Total unit count mismatch: UI {total_units} vs Cypher {cypher_total}"
         )
-
-        # 4. Strict assertions against benchmark row
-        assert ui_reaffirmed == bench_row.reaffirmed_units, (
-            f"Seed {seed}: Reaffirmed unit count mismatch! UI computed {ui_reaffirmed}, benchmark row is {bench_row.reaffirmed_units}"
+        assert ui_held == cypher_held, (
+            f"Seed {seed}: Held unit count mismatch: UI {ui_held} vs Cypher {cypher_held}"
         )
-
-        assert ui_held == bench_row.tainted_units, (
-            f"Seed {seed}: Held unit count mismatch! UI computed {ui_held}, benchmark row is {bench_row.tainted_units}"
+        assert ui_reaffirmed == cypher_reaffirmed, (
+            f"Seed {seed}: Reaffirmed unit count mismatch: UI {ui_reaffirmed} vs Cypher {cypher_reaffirmed}"
         )
-
-        # Verify that non-unit nodes are NOT counted in the total or held counts
-        total_stamped_nodes = len([n for n in all_nodes if n.stamp_text])
-        assert total_stamped_nodes > ui_held, (
-            f"Seed {seed}: Unit held count ({ui_held}) must be strictly less than total stamped nodes ({total_stamped_nodes})"
+        assert ui_escalated == cypher_escalated, (
+            f"Seed {seed}: Escalated unit count mismatch: UI {ui_escalated} vs Cypher {cypher_escalated}"
+        )
+        assert ui_suspect == cypher_suspect, (
+            f"Seed {seed}: Suspect unit count mismatch: UI {ui_suspect} vs Cypher {cypher_suspect}"
         )
 
         print(
-            f"\n[PASS] Seed {seed} Verified:"
-            f"\n  Units Total (Denominator): {total_units} of {bench_row.total_units} batches"
-            f"\n  Held Units:                 {ui_held} (UI) == {bench_row.tainted_units} (Benchmark)"
-            f"\n  Reaffirmed Units:           {ui_reaffirmed} (UI) == {bench_row.reaffirmed_units} (Benchmark)"
-            f"\n  Escalated Units:            {ui_escalated}"
-            f"\n  Suspect Units:              {ui_suspect}"
+            f"\n[PASS] Seed {seed} Cypher vs UI Tiles Parity Verified:"
+            f"\n  Total Units (Denominator): UI={total_units} == Cypher={cypher_total}"
+            f"\n  Held Units:                 UI={ui_held} == Cypher={cypher_held}"
+            f"\n  Reaffirmed Units:           UI={ui_reaffirmed} == Cypher={cypher_reaffirmed}"
+            f"\n  Escalated Units:            UI={ui_escalated} == Cypher={cypher_escalated} (asserted >= 1)"
+            f"\n  Suspect Units:              UI={ui_suspect} == Cypher={cypher_suspect}"
         )
-
-
-def test_ui_counters_fail_if_non_units_included():
-    """Verify that including action/decision nodes in unit counters causes a test failure."""
-    service = IncidentService()
-    snapshot = service.get_graph_snapshot()
-    all_nodes = snapshot.nodes
-
-    # Incorrect counter that counts all nodes with stamps instead of units only
-    corrupt_held = len([n for n in all_nodes if n.stamp_text == "HOLD"])
-    actual_units_held = len([
-        n for n in all_nodes
-        if n.role.lower() == "unit" and n.stamp_text == "HOLD"
-    ])
-
-    if corrupt_held != actual_units_held:
-        print(f"\n[PASS] Confirmed counter divergence: all stamped nodes={corrupt_held} vs unit-only held={actual_units_held}")
-        assert corrupt_held > actual_units_held

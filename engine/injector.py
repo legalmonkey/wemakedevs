@@ -67,10 +67,31 @@ class FaultInjector:
         return self.rng.choice(eligible_node_ids)
 
     def inject(self, graph_client: Any) -> Dict[str, Any]:
-        """Injects an AlertEvent node into the graph client targeting an eligible node."""
-        target_id = self.select_target(graph_client)
+        """Injects an AlertEvent node into the graph client targeting eligible node(s)."""
         fault_spec = self.scenario.get("fault", {})
+        target_role = fault_spec.get("target_role")
+        target_kind = fault_spec.get("target_kind")
 
+        eligible_node_ids = []
+        if hasattr(graph_client, "nodes"):
+            for nid, node in graph_client.nodes.items():
+                role_val = node.role.value if hasattr(node.role, "value") else str(node.role)
+                if target_role and role_val.lower() != target_role.lower():
+                    continue
+                if target_kind and getattr(node, "kind", "").lower() != target_kind.lower():
+                    continue
+                eligible_node_ids.append(nid)
+
+        eligible_node_ids.sort()
+        count = int(fault_spec.get("drifted_sensor_count", fault_spec.get("target_count", 1)))
+        if count > 1 and len(eligible_node_ids) >= count:
+            selected_ids = eligible_node_ids[:count]
+        elif eligible_node_ids:
+            selected_ids = [self.rng.choice(eligible_node_ids)]
+        else:
+            selected_ids = [self.select_target(graph_client)]
+
+        target_id = selected_ids[0]
         digest = hashlib.sha256(f"{self.seed}:event:{target_id}".encode()).hexdigest()[:8]
         event_id = f"event_{self.seed}_{digest}"
 
@@ -80,6 +101,7 @@ class FaultInjector:
         properties = {
             "processed": False,
             "target_evidence_id": target_id,
+            "target_ids": selected_ids,
             "fault_type": fault_type,
             "reason": reason,
         }
@@ -92,12 +114,23 @@ class FaultInjector:
                 properties=properties,
             )
 
-        return {
+        res_dict = {
             "event_id": event_id,
             "target_evidence_id": target_id,
+            "target_ids": selected_ids,
             "fault_type": fault_type,
             "reason": reason,
         }
+        if hasattr(graph_client, "recorded_faults") and "lateral_fault" in graph_client.recorded_faults:
+            res_dict["lateral_fault"] = graph_client.recorded_faults["lateral_fault"]
+        self.recorded_faults = res_dict
+        if hasattr(graph_client, "recorded_faults"):
+            graph_client.recorded_faults.update(res_dict)
+        else:
+            graph_client.recorded_faults = res_dict
+
+        return res_dict
+
 
     def verify_expectations(self, execution_results: Dict[str, Any]) -> List[str]:
         """Verifies scenario expect assertions against execution results (used by tests only)."""
