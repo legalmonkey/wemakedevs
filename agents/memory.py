@@ -102,36 +102,54 @@ class ProceduralMemory:
         target_client = self.persistent_client
 
         # 1. Ensure Procedure node exists in persistent memory graph
-        if hasattr(target_client, "get_node") and not target_client.get_node(procedure_id):
-            if hasattr(target_client, "add_node"):
-                target_client.add_node(
-                    node_id=procedure_id,
-                    kind="StandardProcedure",
-                    role=NodeRole.PROCEDURE,
-                    properties={"procedure_id": procedure_id},
-                )
-
-        # 2. Write Episode node in persistent memory graph
-        if hasattr(target_client, "add_node"):
-            target_client.add_node(
-                node_id=episode_id,
-                kind="IncidentEpisode",
-                role=NodeRole.EPISODE,
-                properties=ep_props,
+        if hasattr(target_client, "graph") and hasattr(target_client.graph, "query"):
+            cypher = (
+                "MERGE (p:Procedure {id: $proc_id}) "
+                "ON CREATE SET p.role = 'Procedure', p.procedure_id = $proc_id, p.kind = 'StandardProcedure' "
+                "MERGE (e:Episode {id: $ep_id}) "
+                "ON CREATE SET e.role = 'Episode', e.episode_id = $ep_id, e.procedure_id = $proc_id, "
+                "              e.outcome = $outcome, e.duration_seconds = $duration "
+                "MERGE (e)-[r:EPISODE_OUTCOME {role: 'episode-outcome'}]->(p) "
+                "ON CREATE SET r.outcome = $outcome, r.duration_seconds = $duration"
             )
-
-        # 3. Write outcome edge: Episode -[:EPISODE_OUTCOME]-> Procedure in persistent memory graph
-        if hasattr(target_client, "add_edge"):
-            target_client.add_edge(
-                source_id=episode_id,
-                target_id=procedure_id,
-                kind="EPISODE_OUTCOME",
-                role=EdgeRole.EPISODE_OUTCOME,
-                properties={
+            target_client.graph.query(
+                cypher,
+                {
+                    "proc_id": procedure_id,
+                    "ep_id": episode_id,
                     "outcome": outcome,
-                    "duration_seconds": duration_seconds,
+                    "duration": duration_seconds,
                 },
             )
+        else:
+            if hasattr(target_client, "get_node") and not target_client.get_node(procedure_id):
+                if hasattr(target_client, "add_node"):
+                    target_client.add_node(
+                        node_id=procedure_id,
+                        kind="StandardProcedure",
+                        role=NodeRole.PROCEDURE,
+                        properties={"procedure_id": procedure_id},
+                    )
+
+            if hasattr(target_client, "get_node") and not target_client.get_node(episode_id):
+                if hasattr(target_client, "add_node"):
+                    target_client.add_node(
+                        node_id=episode_id,
+                        kind="IncidentEpisode",
+                        role=NodeRole.EPISODE,
+                        properties=ep_props,
+                    )
+                if hasattr(target_client, "add_edge"):
+                    target_client.add_edge(
+                        source_id=episode_id,
+                        target_id=procedure_id,
+                        kind="EPISODE_OUTCOME",
+                        role=EdgeRole.EPISODE_OUTCOME,
+                        properties={
+                            "outcome": outcome,
+                            "duration_seconds": duration_seconds,
+                        },
+                    )
 
         # 4. Return SSE episode.closed event
         return EventEnvelope(
@@ -148,70 +166,56 @@ class ProceduralMemory:
             },
         )
 
-    def rank_procedures(self) -> ProceduralRankingResult:
+    def rank_procedures(self, situation: Optional[str] = "containment") -> ProceduralRankingResult:
         """Ranks procedures strictly from recorded graph outcome edges in the persistent graph.
 
         Honest memory rule: Below threshold the system says so and asks a human instead of claiming it learned.
+        Never counts an episode twice.
         """
         target_client = self.persistent_client
-        if not hasattr(target_client, "nodes") or not hasattr(target_client, "edges"):
-            return ProceduralRankingResult(
-                evidence_sufficient=False,
-                min_evidence_threshold=self.min_evidence_episodes,
-                total_episodes_found=0,
-                statement="No procedural records exist in graph. Memory cannot rank procedures.",
-                human_escalation_required=True,
-                human_question="No prior episodes recorded. Human consultation required.",
-            )
-
-        # Aggregate outcomes from stored episode-outcome edges
         procedure_stats: Dict[str, Dict[str, Any]] = {}
-        total_episodes = 0
+        seen_episodes: set[str] = set()
 
-        for edge in target_client.edges:
-            if edge.role == EdgeRole.EPISODE_OUTCOME or edge.kind == "EPISODE_OUTCOME":
-                total_episodes += 1
-                proc_id = edge.target_id
-                outcome = edge.properties.get("outcome", "unknown")
-                duration = float(edge.properties.get("duration_seconds", 0.0))
-
+        if hasattr(target_client, "graph") and hasattr(target_client.graph, "query"):
+            # Real Cypher query against persistent FalkorDB memory
+            cypher = (
+                "MATCH (e:Episode)-[r:EPISODE_OUTCOME]->(p:Procedure) "
+                "RETURN DISTINCT e.id, p.id, coalesce(r.outcome, e.outcome), coalesce(r.duration_seconds, e.duration_seconds)"
+            )
+            res = target_client.graph.query(cypher)
+            rows = res.result_set or []
+            for ep_id, proc_id, outcome, duration in rows:
+                if ep_id in seen_episodes:
+                    continue
+                seen_episodes.add(ep_id)
+                dur = float(duration or 0.0)
                 if proc_id not in procedure_stats:
-                    procedure_stats[proc_id] = {
-                        "count": 0,
-                        "success": 0,
-                        "durations": [],
-                    }
+                    procedure_stats[proc_id] = {"count": 0, "success": 0, "durations": []}
                 procedure_stats[proc_id]["count"] += 1
-                # Demand (3): Outcomes are 'approved' and 'rejected'
                 if outcome in ("approved", "success"):
                     procedure_stats[proc_id]["success"] += 1
-                procedure_stats[proc_id]["durations"].append(duration)
+                procedure_stats[proc_id]["durations"].append(dur)
+        elif hasattr(target_client, "edges"):
+            for edge in target_client.edges:
+                e_role = edge.role.value if hasattr(edge.role, "value") else str(edge.role)
+                if e_role == "episode-outcome" or edge.kind == "EPISODE_OUTCOME":
+                    ep_id = edge.source_id
+                    if ep_id in seen_episodes:
+                        continue
+                    seen_episodes.add(ep_id)
+                    proc_id = edge.target_id
+                    outcome = edge.properties.get("outcome", "unknown")
+                    duration = float(edge.properties.get("duration_seconds", 0.0))
 
+                    if proc_id not in procedure_stats:
+                        procedure_stats[proc_id] = {"count": 0, "success": 0, "durations": []}
+                    procedure_stats[proc_id]["count"] += 1
+                    if outcome in ("approved", "success"):
+                        procedure_stats[proc_id]["success"] += 1
+                    procedure_stats[proc_id]["durations"].append(duration)
 
-        # Evaluate against minimum-evidence threshold from policy
-        if total_episodes < self.min_evidence_episodes:
-            human_q = (
-                f"Below minimum-evidence threshold: Only {total_episodes} episode(s) recorded "
-                f"(policy requires at least {self.min_evidence_episodes}). "
-                "Procedural memory cannot recommend an automated procedure. "
-                "Which procedure should be applied?"
-            )
-            return ProceduralRankingResult(
-                evidence_sufficient=False,
-                min_evidence_threshold=self.min_evidence_episodes,
-                total_episodes_found=total_episodes,
-                ranked_procedures=[],
-                statement=(
-                    f"Below threshold: The system has recorded {total_episodes} episode(s) "
-                    f"(minimum required: {self.min_evidence_episodes}). "
-                    "Stating honestly that procedural ranking is not statistically supported. "
-                    "Human input required instead of automated ranking."
-                ),
-                human_escalation_required=True,
-                human_question=human_q,
-            )
+        total_episodes = len(seen_episodes)
 
-        # Compile evaluations ranked by stored outcomes (success_rate desc, then duration asc)
         evaluations: List[ProcedureEvaluation] = []
         for proc_id, stats in procedure_stats.items():
             cnt = stats["count"]
@@ -229,6 +233,46 @@ class ProceduralMemory:
 
         evaluations.sort(key=lambda p: (-p.success_rate, p.average_duration_seconds))
 
+        # Comparison statement: Compare at least 2 procedures or state comparison not possible
+        situation_desc = situation or "containment"
+        if len(evaluations) < 2:
+            comparison_note = (
+                f"Comparison is not possible: Only {len(evaluations)} procedure "
+                f"('{evaluations[0].procedure_id if evaluations else 'none'}') recorded across "
+                f"{total_episodes} episode(s). At least 2 procedures required to compare for situation '{situation_desc}'."
+            )
+        else:
+            comparison_note = (
+                f"Comparing {len(evaluations)} procedures for situation '{situation_desc}' across {total_episodes} episode(s): "
+                f"top procedure is '{evaluations[0].procedure_id}' ({evaluations[0].success_rate*100:.1f}% success, {evaluations[0].episode_count} eps) "
+                f"vs '{evaluations[1].procedure_id}' ({evaluations[1].success_rate*100:.1f}% success, {evaluations[1].episode_count} eps)."
+            )
+        print(comparison_note)
+
+        # Evaluate against minimum-evidence threshold from policy
+        if total_episodes < self.min_evidence_episodes:
+            human_q = (
+                f"Below minimum-evidence threshold: Only {total_episodes} episode(s) recorded "
+                f"(policy requires at least {self.min_evidence_episodes}). "
+                "Procedural memory cannot recommend an automated procedure. "
+                f"{comparison_note} Which procedure should be applied?"
+            )
+            return ProceduralRankingResult(
+                evidence_sufficient=False,
+                min_evidence_threshold=self.min_evidence_episodes,
+                total_episodes_found=total_episodes,
+                ranked_procedures=evaluations,
+                statement=(
+                    f"Below threshold: The system has recorded {total_episodes} episode(s) "
+                    f"(minimum required: {self.min_evidence_episodes}). "
+                    f"{comparison_note} "
+                    "Stating honestly that procedural ranking is not statistically supported. "
+                    "Human input required instead of automated ranking."
+                ),
+                human_escalation_required=True,
+                human_question=human_q,
+            )
+
         return ProceduralRankingResult(
             evidence_sufficient=True,
             min_evidence_threshold=self.min_evidence_episodes,
@@ -236,7 +280,7 @@ class ProceduralMemory:
             ranked_procedures=evaluations,
             statement=(
                 f"Procedural memory ranked by stored graph outcomes across {total_episodes} "
-                "recorded episode(s)."
+                f"recorded episode(s). {comparison_note}"
             ),
             human_escalation_required=False,
             human_question=None,

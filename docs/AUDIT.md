@@ -1572,3 +1572,86 @@ lateral edge for every single seed between the primary contaminated unit (batch_
 of 100 seeds now receive an injected lateral fault (0 missed, 0 non-injected).
 =========================================================================================================
   ```
+
+---
+
+### Demand (3): Memory Counting & Procedural Ranking Verification
+
+- **Mandate**: Episode IDs must include the incident ID. Run three incidents on different seeds under one stable tenant; show the episode count rises by exactly one per approval or rejection. Ranking must compare at least two procedures for the same situation, or print that comparison is not possible. Never count one episode twice.
+- **Implementation**:
+  - `api/incident_service.py`: Added `self.current_incident_id = f"inc_{seed}"` in `__init__` and `load_seed()`.
+  - Formatted episode IDs as `f"ep_{self.current_tenant_id}_{self.current_incident_id}_{action_id}"` in `approve_action` and `reject_action`.
+  - Removed mock automatic episode recording in `run_incident_stream` Beat 6 so episodes are recorded exclusively upon human approval/rejection.
+  - `agents/memory.py`: In `rank_procedures(self, situation: Optional[str] = "containment")`, implemented procedure comparison logic that compares the top two procedures when $\ge 2$ exist, or explicitly outputs:
+    `Comparison is not possible: Only <N> procedure ('...') recorded across <total> episode(s). At least 2 procedures required to compare for situation '<situation>'.`
+  - Enforced deduplication in Cypher (`MERGE (e:Episode {id: $ep_id})`, `DISTINCT e.id`) and in-memory set tracking (`seen_episodes`) to ensure an episode is never counted twice.
+- **Verification Test**: `tests/audit/test_demand3_memory_counting.py`
+- **Command Run**:
+  ```powershell
+  python -m pytest tests/audit/test_demand3_memory_counting.py -v -s
+  ```
+- **Raw Verbatim Output**:
+  ```text
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\SHIVANSH\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\SHIVANSH\wemakedevs
+configfile: pytest.ini
+plugins: anyio-4.12.0, asyncio-1.4.0, cov-7.1.0, mock-3.15.1, playwright-0.10.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/audit/test_demand3_memory_counting.py::test_demand3_memory_counting_and_ranking 
+====================================================================================================
+DEMAND 3: MEMORY COUNTING & PROCEDURAL RANKING VERIFICATION
+Stable Tenant: tenant-memory-counting-stable
+====================================================================================================
+Comparison is not possible: Only 0 procedure ('none') recorded across 0 episode(s). At least 2 procedures required to compare for situation 'containment'.
+
+[STEP 0] Memory cleanly initialized. Initial episode count: 0
+
+--- [INCIDENT 1] Running Seed 1101 on tenant-memory-counting-stable ---
+Action:     act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Episode ID: ep_tenant-memory-counting-stable_inc_1101_act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Outcome:    approved
+Procedure:  proc-draft-notice
+Comparison is not possible: Only 1 procedure ('proc-draft-notice') recorded across 1 episode(s). At least 2 procedures required to compare for situation 'containment'.
+Episode Count after Incident 1: 1 (Expected: 1)
+
+--- [INCIDENT 2] Running Seed 2202 on tenant-memory-counting-stable ---
+Action:     act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Episode ID: ep_tenant-memory-counting-stable_inc_2202_act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Outcome:    rejected
+Procedure:  proc-draft-notice
+Comparison is not possible: Only 1 procedure ('proc-draft-notice') recorded across 2 episode(s). At least 2 procedures required to compare for situation 'containment'.
+Episode Count after Incident 2: 2 (Expected: 2)
+
+--- [INCIDENT 3] Running Seed 3303 on tenant-memory-counting-stable ---
+Action:     act-escalate-human-seed3303
+Episode ID: ep_tenant-memory-counting-stable_inc_3303_act-escalate-human-seed3303
+Outcome:    approved
+Procedure:  proc-escalate-human
+Comparing 2 procedures for situation 'containment' across 3 episode(s): top procedure is 'proc-escalate-human' (100.0% success, 1 eps) vs 'proc-draft-notice' (50.0% success, 2 eps).
+Episode Count after Incident 3: 3 (Expected: 3)
+
+[RANKING STATEMENT]:
+Procedural memory ranked by stored graph outcomes across 3 recorded episode(s). Comparing 2 procedures for situation 'containment' across 3 episode(s): top procedure is 'proc-escalate-human' (100.0% success, 1 eps) vs 'proc-draft-notice' (50.0% success, 2 eps).
+  -> Procedure: proc-escalate-human | Episodes: 1 | Success Rate: 100.0%
+  -> Procedure: proc-draft-notice | Episodes: 2 | Success Rate: 50.0%
+
+--- [DEDUPLICATION CHECK] Re-approving exact same action in Seed 3303 ---
+Comparing 2 procedures for situation 'containment' across 3 episode(s): top procedure is 'proc-escalate-human' (100.0% success, 1 eps) vs 'proc-draft-notice' (50.0% success, 2 eps).
+Episode Count after duplicate replay: 3 (Expected: 3)
+
+====================================================================================================
+ALL DEMAND 3 INVARIANTS VERIFIED:
+  1. Episode IDs include incident IDs (inc_1101, inc_2202, inc_3303)
+  2. Episode count rises by exactly +1 per approval or rejection (0 -> 1 -> 2 -> 3)
+  3. Ranking prints 'Comparison is not possible' when <2 procedures, and compares top procedures when >=2
+  4. Never counts an episode twice on duplicate replay (3 remains 3)
+====================================================================================================
+
+PASSED
+
+============================= 1 passed in 19.01s ==============================
+  ```

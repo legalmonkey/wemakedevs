@@ -48,6 +48,7 @@ class IncidentService:
     def __init__(self, stable_tenant_id: Optional[str] = None) -> None:
         self.stable_tenant_id: Optional[str] = stable_tenant_id
         self.current_seed: int = 101
+        self.current_incident_id: str = f"inc_{self.current_seed}"
         self.current_tenant_id: str = stable_tenant_id or "tenant-seed-101"
         self.graph_client: FalkorDBGraphClient = generate_seeded_incident(
             self.current_seed,
@@ -66,6 +67,7 @@ class IncidentService:
     def load_seed(self, seed: int, tenant_id: Optional[str] = None) -> None:
         """Initializes an incident topology from seed (supports stable-tenant mode)."""
         self.current_seed = seed
+        self.current_incident_id = f"inc_{seed}"
         target_tenant = self.stable_tenant_id or tenant_id
         is_clean = (self.stable_tenant_id is None)
         self.graph_client = generate_seeded_incident(seed, clean=is_clean, tenant_id=target_tenant)
@@ -290,34 +292,19 @@ class IncidentService:
                     action_id = payload.get("action_id", ev.entity_ids[0] if ev.entity_ids else f"act-{len(self.actions_registry)+1}")
                     self.actions_registry[action_id] = {
                         "action_id": action_id,
-                        "action_kind": payload.get("action_kind", "QuarantineHold"),
+                        "action_kind": payload.get("action_kind", "quarantine_hold"),
                         "target_entity_id": payload.get("target_entity_id", ""),
                         "causal_path": payload.get("causal_path", []),
                         "requires_approval": payload.get("requires_approval", True),
                         "approved": False,
-                        "draft_content": payload.get("draft_content", "Notice drafted for regulatory & recipient compliance."),
+                        "draft_content": payload.get("draft_content", "Draft customer advisory notice prepared under FSMA protocol. Human sign-off required prior to logistics interception dispatch."),
                     }
                 await publish(data)
             if tick_res.total_items_processed == 0:
                 break
 
-        # BEAT 6: Procedural memory records episode and procedure ranking
-        log_query("MATCH (ep:Episode) CREATE (ep)-[:OUTCOME {success: true}]->(:Procedure);")
-        # Find action IDs to record
-        action_ids = list(self.actions_registry.keys())
-        if action_ids:
-            try:
-                memory.record_episode(
-                    procedure_id="proc-standard-containment",
-                    incident_type="CalibrationDrift",
-                    action_ids=action_ids,
-                    evidence_retracted_count=1,
-                    tainted_units_count=2,
-                    reaffirmed_units_count=1,
-                    success=True,
-                )
-            except Exception as e:
-                logger.debug("Memory episode recording notice: %s", e)
+        # BEAT 6: Procedural memory query logging
+        log_query("MATCH (ep:Episode)-[:EPISODE_OUTCOME]->(p:Procedure) RETURN count(ep);")
 
         # BEAT 7: Incident complete & agents quiescent
         ts_end = datetime.now(timezone.utc).isoformat()
@@ -396,7 +383,7 @@ class IncidentService:
         return WhyPathResponse(
             action_id=action_id,
             target_entity_id=action_data.get("target_entity_id", ""),
-            action_kind=action_data.get("action_kind", "QuarantineHold"),
+            action_kind=action_data.get("action_kind", "quarantine_hold"),
             causal_path=causal_path,
             steps=steps,
             requires_approval=action_data.get("requires_approval", True),
@@ -415,9 +402,9 @@ class IncidentService:
                 seen_ids.add(aid)
                 pending.append({
                     "action_id": aid,
-                    "action_kind": data.get("action_kind", "Action"),
+                    "action_kind": data.get("action_kind", "quarantine_hold"),
                     "target_entity_id": data.get("target_entity_id", aid),
-                    "draft_content": data.get("draft_content", "Awaiting operator sign-off"),
+                    "draft_content": data.get("draft_content", "Draft customer advisory notice prepared under FSMA protocol. Human sign-off required prior to logistics interception dispatch."),
                     "causal_path": data.get("causal_path", []),
                     "requires_approval": True,
                     "approved": False,
@@ -430,9 +417,9 @@ class IncidentService:
                     seen_ids.add(node_id)
                     pending.append({
                         "action_id": node_id,
-                        "action_kind": node.properties.get("action_kind") or node.kind,
+                        "action_kind": node.properties.get("action_kind") or node.kind or "quarantine_hold",
                         "target_entity_id": node.properties.get("target_entity_id", node_id),
-                        "draft_content": node.properties.get("draft_content") or "Requires operator review before dispatch.",
+                        "draft_content": node.properties.get("draft_content") or "FSMA recall protocol: quarantine hold notification requires forensic operator adjudication.",
                         "causal_path": node.properties.get("causal_path", [node_id]),
                         "requires_approval": True,
                         "approved": False,
@@ -469,12 +456,13 @@ class IncidentService:
 
         # Demand 5: Dynamic procedure names and 'approved' outcome in per-tenant procedural memory
         memory = ProceduralMemory(tenant_id=self.current_tenant_id, graph_client=self.graph_client)
-        episode_id = f"ep_{self.current_tenant_id}_{action_id}"
+        episode_id = f"ep_{self.current_tenant_id}_{self.current_incident_id}_{action_id}"
         memory.record_episode(
             episode_id=episode_id,
             procedure_id=procedure_id,
             outcome="approved",  # Defined from recorded human approval!
             duration_seconds=42.0,
+            details={"action_id": action_id, "incident_id": self.current_incident_id},
         )
 
         return {
@@ -520,12 +508,13 @@ class IncidentService:
         # Demand 5: Dynamic procedure names and 'rejected' outcome in per-tenant procedural memory
         memory = ProceduralMemory(tenant_id=self.current_tenant_id, graph_client=self.graph_client)
 
-        episode_id = f"ep_{self.current_tenant_id}_{action_id}"
+        episode_id = f"ep_{self.current_tenant_id}_{self.current_incident_id}_{action_id}"
         memory.record_episode(
             episode_id=episode_id,
             procedure_id=procedure_id,
             outcome="rejected",  # Defined from human rejection!
             duration_seconds=42.0,
+            details={"action_id": action_id, "incident_id": self.current_incident_id},
         )
 
         return {
