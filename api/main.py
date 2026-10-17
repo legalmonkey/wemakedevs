@@ -162,8 +162,8 @@ async def trigger_incident_run(
 ):
     """Triggers an asynchronous multi-agent incident run on a seeded graph."""
     seed = req.seed or 101
-    speed_ms = req.speed_ms or 350
-    tenant_id = req.tenant_id or f"tenant-seed-{seed}"
+    speed_ms = req.speed_ms if req.speed_ms is not None else 350
+    tenant_id = req.tenant_id or INCIDENT_SERVICE.stable_tenant_id or f"tenant-seed-{seed}"
 
     # Run execution in background task so endpoint returns immediately
     background_tasks.add_task(
@@ -180,6 +180,16 @@ async def trigger_incident_run(
         "tenant_id": tenant_id,
         "speed_ms": speed_ms,
         "message": f"Multi-agent incident run started on seed {seed}",
+    }
+
+
+@app.get("/api/incident/status")
+async def get_incident_status():
+    """Returns whether the multi-agent incident run is currently executing."""
+    return {
+        "is_running": INCIDENT_SERVICE.is_running,
+        "seed": INCIDENT_SERVICE.current_seed,
+        "tenant_id": INCIDENT_SERVICE.current_tenant_id,
     }
 
 
