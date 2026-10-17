@@ -25,6 +25,7 @@ interface RegistryData {
     shadow_offset?: string;
     signal_inks: Record<string, string>;
   };
+  role_order?: string[];
   statuses: StatusDefinition[];
   vocabulary: Record<string, string>;
   node_presentation: Record<string, { label: string; badge: string; shape: string }>;
@@ -479,15 +480,22 @@ export default function ForensicDossier() {
     const centerX = width / 2;
     const centerY = height / 2;
 
-    const roleBands: Record<string, number> = {
-      event: 110,
-      evidence: 270,
-      decision: 480,
-      unit: 710,
-      shipment: 920,
-      recipient: 1070,
-      action: 1070,
-    };
+    const defaultRoles = ["event", "evidence", "decision", "unit", "shipment", "recipient"];
+    const orderedRoles =
+      registry?.role_order && registry.role_order.length > 0
+        ? registry.role_order.map((r) => r.toLowerCase())
+        : defaultRoles;
+
+    const roleBands: Record<string, number> = {};
+    const marginX = 110;
+    const availableWidth = width - marginX * 2;
+    orderedRoles.forEach((r, idx) => {
+      const fraction = orderedRoles.length > 1 ? idx / (orderedRoles.length - 1) : 0.5;
+      roleBands[r] = Math.round(marginX + fraction * availableWidth);
+    });
+    if (!roleBands["action"]) {
+      roleBands["action"] = roleBands[orderedRoles[orderedRoles.length - 1]] || 1070;
+    }
 
     const posMap: Record<string, NodePosition> = {};
     const roleCounts: Record<string, number> = {};
@@ -582,7 +590,7 @@ export default function ForensicDossier() {
     }
 
     return posMap;
-  }, [displayedNodes, displayedEdges]);
+  }, [displayedNodes, displayedEdges, registry]);
 
   // Compute 4 dynamic counts
   const counts = useMemo(() => {

@@ -45,6 +45,7 @@ class RegistryResponse(BaseModel):
     statuses: List[StatusDefinition]
     vocabulary: Dict[str, str]
     node_presentation: Dict[str, NodePresentation]
+    role_order: Optional[List[str]] = None
 
 
 class EventContractPayload(BaseModel):
