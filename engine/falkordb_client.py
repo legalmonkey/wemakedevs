@@ -259,6 +259,140 @@ class FalkorDBGraphClient(QueryAPIProtocol):
         self.executed_queries.append(f"{cypher} params={{src: '{source_id}', tgt: '{target_id}'}}")
         return FalkorEdge(source_id, target_id, kind, role, sanitized)
 
+    def batch_add_nodes(self, nodes_data: List[Dict[str, Any]]) -> List[FalkorNode]:
+        """Batches node creation using Cypher UNWIND for high-throughput writes (Demand 6)."""
+        if not nodes_data:
+            return []
+
+        # Group by label expression
+        groups: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
+        result_nodes: List[FalkorNode] = []
+        for nd in nodes_data:
+            node_id = nd["id"]
+            kind = nd.get("kind", "")
+            role = nd.get("role", "")
+            role_val = role.value if hasattr(role, "value") else str(role)
+            props = dict(nd.get("properties") or {})
+            props["id"] = node_id
+            props["kind"] = kind
+            props["role"] = role_val
+            sanitized = _sanitize_props(props)
+
+            labels = [role_val]
+            if kind and kind != role_val:
+                labels.append(kind)
+            label_expr = ":".join(f"`{lbl}`" for lbl in labels)
+
+            groups[label_expr].append({"id": node_id, "props": sanitized, "role": role, "kind": kind})
+
+        for label_expr, items in groups.items():
+            cypher = f"UNWIND $batch AS item MERGE (n:{label_expr} {{id: item.id}}) SET n += item.props"
+            batch_payload = [{"id": it["id"], "props": it["props"]} for it in items]
+            self.graph.query(cypher, {"batch": batch_payload})
+            self.executed_queries.append(f"{cypher} params={{batch_size: {len(batch_payload)}}}")
+            for it in items:
+                result_nodes.append(FalkorNode(it["id"], it["kind"], it["role"], it["props"], client=self))
+        return result_nodes
+
+    def batch_add_edges(self, edges_data: List[Dict[str, Any]]) -> List[FalkorEdge]:
+        """Batches edge creation using Cypher UNWIND for high-throughput writes (Demand 6)."""
+        if not edges_data:
+            return []
+
+        groups: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
+        result_edges: List[FalkorEdge] = []
+        for ed in edges_data:
+            source_id = ed["source_id"]
+            target_id = ed["target_id"]
+            kind = ed.get("kind", "")
+            role = ed.get("role", "")
+            role_val = role.value if hasattr(role, "value") else str(role)
+            props = dict(ed.get("properties") or {})
+            props["kind"] = kind
+            props["role"] = role_val
+            sanitized = _sanitize_props(props)
+
+            rel_type = f"`{kind}`" if ("-" in kind and not kind.startswith("`")) else kind
+            groups[rel_type].append({"src": source_id, "tgt": target_id, "props": sanitized, "role": role, "kind": kind})
+
+        for rel_type, items in groups.items():
+            cypher = f"UNWIND $batch AS item MATCH (a {{id: item.src}}), (b {{id: item.tgt}}) CREATE (a)-[r:{rel_type}]->(b) SET r += item.props"
+            batch_payload = [{"src": it["src"], "tgt": it["tgt"], "props": it["props"]} for it in items]
+            res = self.graph.query(cypher, {"batch": batch_payload})
+            if not res.relationships_created or res.relationships_created == 0:
+                raise ValueError(
+                    f"Batch edge creation failed for rel_type '{rel_type}'. Verify endpoint nodes exist."
+                )
+            self.executed_queries.append(f"{cypher} params={{batch_size: {len(batch_payload)}}}")
+            for it in items:
+                result_edges.append(FalkorEdge(it["src"], it["tgt"], it["kind"], it["role"], it["props"]))
+        return result_edges
+
+    def atomic_hold_and_notice(
+        self,
+        unit_id: str,
+        hold_id: str,
+        causal_path: List[str],
+    ) -> Dict[str, Any]:
+        """Places quarantine hold and drafts recipient notices in a single atomic Cypher query (Demand 2 & 5)."""
+        cypher = (
+            "MATCH (u:Unit {id: $unit_id}) "
+            "WHERE (coalesce(u.is_tainted, false) = true OR coalesce(u.verdict, '') = 'tainted') "
+            "  AND coalesce(u.verdict, '') <> 'reaffirmed' "
+            "  AND coalesce(u.status, '') <> 'reaffirmed' "
+            "SET u.status = 'quarantined', u.hold_placed = true, u.verdict = 'tainted', "
+            "    u.taint_via_path = coalesce(u.taint_via_path, $causal_path), "
+            "    u.taint_hops = coalesce(u.taint_hops, size($causal_path) - 1), "
+            "    u.is_tainted = true "
+            "MERGE (h:Action {id: $hold_id}) "
+            "ON CREATE SET h.kind = 'hold_unit', h.action_kind = 'hold_unit', h.action_type = 'hold_unit', h.role = 'Action', "
+            "              h.target_entity_id = u.id, h.causal_path = $causal_path, "
+            "              h.requires_approval = false, h.reason_code = 'TAINT_CONFIRMED', "
+            "              h.procedure_id = 'proc-hold-unit', h.replayed = false "
+            "ON MATCH SET h.replayed = true, h.action_type = coalesce(h.action_type, 'hold_unit'), "
+            "             h.causal_path = coalesce(h.causal_path, $causal_path) "
+            "WITH u, h "
+            "OPTIONAL MATCH (u)-[r1]->(s:Shipment)-[r2]->(r:Recipient) "
+            "WHERE (r1.role = 'ships-in' OR type(r1) IN ['SHIPS_IN', 'ships-in']) "
+            "  AND (r2.role = 'delivered-to' OR type(r2) IN ['DELIVERED_TO', 'delivered-to']) "
+            "WITH u, h, collect(DISTINCT {rec_id: r.id, ship_id: s.id}) AS exposures "
+            "FOREACH (exp IN [x IN exposures WHERE x.rec_id IS NOT NULL] | "
+            "    MERGE (n:Action {id: 'act-notice-' + exp.rec_id + '-' + u.id}) "
+            "    ON CREATE SET n.kind = 'draft_notice', n.action_kind = 'draft_notice', n.action_type = 'draft_notice', n.role = 'Action', "
+            "                  n.target_entity_id = exp.rec_id, n.requires_approval = true, "
+            "                  n.reason_code = 'EXPOSURE_DETECTED', n.unit_id = u.id, "
+            "                  n.shipment_id = exp.ship_id, n.status = 'pending_approval', "
+            "                  n.procedure_id = 'proc-draft-notice', n.replayed = false, "
+            "                  n.causal_path = $causal_path + [exp.ship_id, exp.rec_id] "
+            "    ON MATCH SET n.replayed = true, n.action_type = coalesce(n.action_type, 'draft_notice'), "
+            "                 n.causal_path = coalesce(n.causal_path, $causal_path + [exp.ship_id, exp.rec_id]) "
+            ") "
+            "RETURN u.id AS unit_id, h.id AS hold_id, size([x IN exposures WHERE x.rec_id IS NOT NULL]) AS notices_created"
+        )
+        self.executed_queries.append(f"{cypher} params={{unit_id: '{unit_id}', hold_id: '{hold_id}'}}")
+        res = self.graph.query(
+            cypher,
+            {
+                "unit_id": unit_id,
+                "hold_id": hold_id,
+                "causal_path": causal_path,
+            },
+        )
+        if not res.result_set or len(res.result_set) == 0:
+            raise ValueError(
+                f"Atomic hold failed: Unit '{unit_id}' cannot be held. "
+                f"Requires tainted state (cannot be untainted, reaffirmed, or have null verdict)."
+            )
+
+        row = res.result_set[0]
+        notices_created = int(row[2])
+        return {
+            "unit_id": unit_id,
+            "hold_id": hold_id,
+            "notices_created": notices_created,
+            "atomic": True,
+        }
+
     def write_taints_edge(
         self,
         source_id: str,
@@ -274,6 +408,7 @@ class FalkorDBGraphClient(QueryAPIProtocol):
             role=EdgeRole.TAINTS,
             properties={"hops": hops, "via_path": via_path},
         )
+
 
     def get_node(self, node_id: str) -> Optional[FalkorNode]:
         """Fetches a node by ID from FalkorDB."""

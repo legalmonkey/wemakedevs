@@ -50,6 +50,8 @@ def _create_action_tool_handler(
                 role=NodeRole.ACTION,
                 properties={
                     "tool_name": tool_def.tool_name,
+                    "action_type": tool_def.tool_name,
+                    "action_kind": tool_def.tool_name,
                     "target_entity_id": entity_id,
                     "causal_path": causal_path,
                     "path_hops": max(0, len(causal_path) - 1),

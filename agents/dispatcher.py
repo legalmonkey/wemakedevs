@@ -160,69 +160,108 @@ class DispatcherAgent(BaseAgent):
                     # DEMAND 5 INVARIANT: A reaffirmed unit can NEVER be held or noticed under any agent interleaving
                     continue
 
+                # Ensure unit is in tainted state for the atomic hold query
+                if hasattr(self.graph_client, "update_node"):
+                    self.graph_client.update_node(target_id, {"is_tainted": True, "verdict": "tainted"})
+
                 action_id = f"act-hold-{target_id}"
 
-                self._persist_action(
-                    action_id=action_id,
-                    action_kind="hold_unit",
-                    target_id=target_id,
-                    causal_path=unit_path,
-                    requires_approval=False,
-                    reason_code="TAINT_CONFIRMED",
-                    details={},
-                )
-                emitted_events.append(
-                    self._create_action_event(
+                # Demand 5: Make the hold and the notice a single atomic Cypher query
+                if hasattr(self.graph_client, "atomic_hold_and_notice"):
+                    atomic_res = self.graph_client.atomic_hold_and_notice(
+                        unit_id=target_id,
+                        hold_id=action_id,
+                        causal_path=unit_path,
+                    )
+                    emitted_events.append(
+                        self._create_action_event(
+                            action_id=action_id,
+                            action_kind="hold_unit",
+                            target_id=target_id,
+                            causal_path=unit_path,
+                            requires_approval=False,
+                        )
+                    )
+                    # For every notice action created by the atomic query, emit corresponding draft_notice event
+                    if hasattr(self.graph_client, "find_nodes_by_role"):
+                        notice_actions = [
+                            n for n in self.graph_client.find_nodes_by_role(NodeRole.ACTION)
+                            if n.node_id.startswith(f"act-notice-") and n.properties.get("unit_id") == target_id
+                        ]
+                        for na in notice_actions:
+                            emitted_events.append(
+                                self._create_action_event(
+                                    action_id=na.node_id,
+                                    action_kind="draft_notice",
+                                    target_id=na.properties.get("target_entity_id", ""),
+                                    causal_path=na.properties.get("causal_path", unit_path),
+                                    requires_approval=True,
+                                    draft_content=na.properties.get("draft_content", ""),
+                                )
+                            )
+                else:
+                    self._persist_action(
                         action_id=action_id,
                         action_kind="hold_unit",
                         target_id=target_id,
                         causal_path=unit_path,
                         requires_approval=False,
+                        reason_code="TAINT_CONFIRMED",
+                        details={},
                     )
-                )
+                    emitted_events.append(
+                        self._create_action_event(
+                            action_id=action_id,
+                            action_kind="hold_unit",
+                            target_id=target_id,
+                            causal_path=unit_path,
+                            requires_approval=False,
+                        )
+                    )
 
-                # Check exposure for outbound shipments/recipients
-                if hasattr(self.graph_client, "exposure"):
-                    exp_res = self.graph_client.exposure(target_id)
-                    for exp in exp_res.data.exposures:
-                        if exp.recipient_id:
-                            # Notice action: Rule: Draft notice REQUIRES human approval
-                            notice_id = f"act-notice-{exp.recipient_id}-{target_id}"
-                            notice_path = unit_path + [exp.shipment_id or "", exp.recipient_id]
-                            causal_summary = " -> ".join([str(p) for p in notice_path if p])
+                    # Check exposure for outbound shipments/recipients
+                    if hasattr(self.graph_client, "exposure"):
+                        exp_res = self.graph_client.exposure(target_id)
+                        for exp in exp_res.data.exposures:
+                            if exp.recipient_id:
+                                # Notice action: Rule: Draft notice REQUIRES human approval
+                                notice_id = f"act-notice-{exp.recipient_id}-{target_id}"
+                                notice_path = unit_path + [exp.shipment_id or "", exp.recipient_id]
+                                causal_summary = " -> ".join([str(p) for p in notice_path if p])
 
-                            draft_copy = ""
-                            if self.llm_adapter:
-                                draft_copy = self.llm_adapter.draft_notice_text(
-                                    target_role=NodeRole.RECIPIENT.value,
-                                    target_id=exp.recipient_id,
-                                    causal_summary=causal_summary,
-                                )
+                                draft_copy = ""
+                                if self.llm_adapter:
+                                    draft_copy = self.llm_adapter.draft_notice_text(
+                                        target_role=NodeRole.RECIPIENT.value,
+                                        target_id=exp.recipient_id,
+                                        causal_summary=causal_summary,
+                                    )
 
-                            self._persist_action(
-                                action_id=notice_id,
-                                action_kind="draft_notice",
-                                target_id=exp.recipient_id,
-                                causal_path=notice_path,
-                                requires_approval=True,  # STRICT REQUIREMENT
-                                reason_code="EXPOSURE_DETECTED",
-                                details={
-                                    "unit_id": target_id,
-                                    "shipment_id": exp.shipment_id,
-                                    "draft_content": draft_copy,
-                                    "status": "pending_approval",
-                                },
-                            )
-                            emitted_events.append(
-                                self._create_action_event(
+                                self._persist_action(
                                     action_id=notice_id,
                                     action_kind="draft_notice",
                                     target_id=exp.recipient_id,
                                     causal_path=notice_path,
-                                    requires_approval=True,
-                                    draft_content=draft_copy,
+                                    requires_approval=True,  # STRICT REQUIREMENT
+                                    reason_code="EXPOSURE_DETECTED",
+                                    details={
+                                        "unit_id": target_id,
+                                        "shipment_id": exp.shipment_id,
+                                        "draft_content": draft_copy,
+                                        "status": "pending_approval",
+                                    },
                                 )
-                            )
+                                emitted_events.append(
+                                    self._create_action_event(
+                                        action_id=notice_id,
+                                        action_kind="draft_notice",
+                                        target_id=exp.recipient_id,
+                                        causal_path=notice_path,
+                                        requires_approval=True,
+                                        draft_content=draft_copy,
+                                    )
+                                )
+
 
         # Mark decision as dispatched in graph for idempotency
         if hasattr(self.graph_client, "update_node"):
@@ -246,6 +285,7 @@ class DispatcherAgent(BaseAgent):
 
         props = {
             "action_kind": action_kind,
+            "action_type": action_kind,
             "target_entity_id": target_id,
             "causal_path": causal_path,
             "path_hops": max(0, len(causal_path) - 1),

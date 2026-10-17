@@ -1413,4 +1413,41 @@ DEMAND 7: REAL INCIDENT WRITING EPISODE WITH OUTCOME FROM RECORDED HUMAN APPROVA
 PASSED
 
 ============================= 1 passed in 19.95s ==============================
+AUDIT APPROVED (scope: Part 2 UI only; backend items 1 to 6 below remain OPEN)
+
+---
+
+## 4. Remediation Re-Verification Phase 2 (Items 1 to 5)
+
+### Item 1: 100% Explanation Coverage across 100 Seeds
+- **Requirement**: Report counts per action kind with and without `causal_path`. Fix where actions are created (inside the atomic Cypher). Add a test that runs 100 seeds and calls explain on every action. Run `MATCH (a:Action) WHERE a.causal_path IS NULL RETURN a.action_type, count(*)` and show 0 rows. Remove any "100% guarantee" wording unless the measured result is 100%.
+- **Fix Applied**: Updated `atomic_hold_and_notice` in `engine/falkordb_client.py` to populate `action_type = 'draft_notice'` and `causal_path = $causal_path + [exp.ship_id, exp.rec_id]` on all draft notice actions generated in Cypher `FOREACH`. Updated `agents/dispatcher.py` to ensure `action_type` is consistently populated on every action node.
+- **Verification Test**: `tests/audit/test_demand1_explanation_coverage_100_seeds.py`
+- **Command Run**:
+  ```powershell
+  $env:PYTHONPATH="."; python tests/audit/test_demand1_explanation_coverage_100_seeds.py
+  ```
+- **Raw Verbatim Output**:
+  ```text
+==========================================================================================
+ITEM 1: EXPLANATION COVERAGE OVER 100 SEEDS ON LIVE FALKORDB
+==========================================================================================
+
+Completed evaluation of 100 seeds in 413.88s (2181 total actions inspected).
+
+Action Kind               | With Causal Path   | Without Causal Path  | Coverage %
+--------------------------------------------------------------------------------
+draft_notice              | 781                | 0                    |   100.00%
+escalate_human            | 217                | 0                    |   100.00%
+hold_unit                 | 781                | 0                    |   100.00%
+release_unit              | 402                | 0                    |   100.00%
+--------------------------------------------------------------------------------
+TOTAL ACTIONS             | 2181               | 0                    |   100.00%
+================================================================================
+
+Cypher Validation Query: MATCH (a:Action) WHERE a.causal_path IS NULL RETURN a.action_type, count(*)
+Result Rows: []
+Total Rows with causal_path IS NULL: 0
+
+[VERIFIED] Explanation coverage is 100.0% (measured result across 100 seeds).
   ```
