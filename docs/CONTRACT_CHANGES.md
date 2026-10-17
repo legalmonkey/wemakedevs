@@ -14,4 +14,5 @@ After Hour 3, contracts are frozen and change only through an approved change no
 
 | Date | Contract File | Proposed Change | Motivation | Approved By (A, B, C) | Status |
 | --- | --- | --- | --- | --- | --- |
-| None | None | No post-freeze contract modifications | Frozen per Section 0 Rule 2 | Team (A, B, C) | FROZEN |
+| 2026-10-17 | docs/DESIGN_BRIEF.md | DESIGN_BRIEF.md is superseded for line weight (solid 2-3px borders from one token), shadows (hard offset shadows with zero blur from one token, used only to show interactive or selected), and corners (square corners, border-radius: 0px) only. Everything else stays: paper palette, three signal inks from the status registry, stamps, query log, Why drawer, banned list. | Adopt minimalist neobrutalism to heighten tactile clarity, forensic authority, and unambiguous interactive state signaling. | Team (A, B, C) | APPROVED |
+

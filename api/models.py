@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 
 class ThemeTokens(BaseModel):
+    model_config = {"extra": "allow"}
     paper_base: str
     paper_sunken: str
     paper_elevated: str
@@ -18,6 +19,9 @@ class ThemeTokens(BaseModel):
     ink_secondary: str
     ink_muted: str
     ink_border: str
+    border_width: Optional[str] = None
+    border_neo: Optional[str] = None
+    shadow_offset: Optional[str] = None
     signal_inks: Dict[str, str]
 
 

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
 :root {
   /* Paper & Ink Palette Tokens */
@@ -8,25 +8,45 @@
   --ink-primary: #181716;
   --ink-secondary: #4D4A46;
   --ink-muted: #635F5A;
-  --ink-border: #D1CDBF;
-  --ink-border-subtle: #E2DED2;
+  --ink-border: #181716;
 
-  /* Signal Inks */
+  /* Three Signal Inks Only (Registry Token Bound, WCAG AA >= 4.5:1) */
   --signal-taint: #C23B22;
   --signal-reaffirm: #1B5E20;
   --signal-suspect: #8F5400;
   --signal-neutral: #5E5852;
 
+  /* Minimalist Neobrutalism Design System Tokens */
+  --border-width: 2px;
+  --border-width-thick: 3px;
+  --border-neo: 2px solid var(--ink-primary);
+  --border-neo-thick: 3px solid var(--ink-primary);
+  --border-neo-taint: 2px solid var(--signal-taint);
+  --border-neo-reaffirm: 2px solid var(--signal-reaffirm);
+  --border-neo-suspect: 2px solid var(--signal-suspect);
+  
+  /* Hard offset shadows with zero blur - Used ONLY to show interactive or selected */
+  --shadow-interactive: 3px 3px 0px var(--ink-primary);
+  --shadow-interactive-active: 1px 1px 0px var(--ink-primary);
+  --shadow-interactive-lg: 4px 4px 0px var(--ink-primary);
+  --shadow-interactive-taint: 3px 3px 0px var(--signal-taint);
+  --shadow-interactive-reaffirm: 3px 3px 0px var(--signal-reaffirm);
+  --shadow-interactive-suspect: 3px 3px 0px var(--signal-suspect);
+  --radius-neo: 0px;
+
   /* Typography */
   --font-serif: 'Playfair Display', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
   --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-size-body: 16px;
+  --font-size-label: 11px;
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  border-radius: 0px !important; /* Minimalist neobrutalism: strictly square corners */
 }
 
 html, body {
@@ -36,39 +56,78 @@ html, body {
   padding: 0;
   overflow: hidden;
   box-sizing: border-box;
+  background-color: var(--bg-paper);
 }
 
 body {
-  background-color: var(--bg-paper);
   color: var(--ink-primary);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* Hairline borders & No Shadows / No Blur */
-.hairline-border {
-  border: 1px solid var(--ink-border);
+/* Full keyboard operation with visible focus ring */
+:focus-visible {
+  outline: 3px solid var(--ink-primary) !important;
+  outline-offset: 2px !important;
 }
 
-.hairline-bottom {
-  border-bottom: 1px solid var(--ink-border);
+/* Motion: discrete steps only, keep hop-by-hop propagation, respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
-.hairline-right {
-  border-right: 1px solid var(--ink-border);
+/* Neobrutalist Solid Borders */
+.border-neo {
+  border: var(--border-neo);
 }
 
-.hairline-left {
-  border-left: 1px solid var(--ink-border);
+.border-neo-thick {
+  border: var(--border-neo-thick);
 }
 
-.hairline-top {
-  border-top: 1px solid var(--ink-border);
+.border-neo-bottom {
+  border-bottom: var(--border-neo);
+}
+
+.border-neo-right {
+  border-right: var(--border-neo);
+}
+
+.border-neo-left {
+  border-left: var(--border-neo);
+}
+
+.border-neo-top {
+  border-top: var(--border-neo);
+}
+
+/* Hard Offset Shadows - Interactive Only */
+.shadow-neo-btn {
+  box-shadow: var(--shadow-interactive);
+  transition: transform 0.08s steps(2, jump-none), box-shadow 0.08s steps(2, jump-none);
+}
+
+.shadow-neo-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-interactive-lg);
+}
+
+.shadow-neo-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: var(--shadow-interactive-active);
+}
+
+.shadow-neo-selected {
+  box-shadow: var(--shadow-interactive);
 }
 
 /* Typography Utility Classes */
@@ -84,42 +143,66 @@ body {
   font-family: var(--font-body);
 }
 
-/* Forensic Rubber Stamps */
+.mono-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Forensic Neobrutalist Rubber Stamps */
 .forensic-stamp {
-  display: inline-block;
-  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
   text-transform: uppercase;
   font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  border-width: 2px;
-  border-style: solid;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  border: 2px solid var(--ink-primary);
+  background-color: var(--bg-paper);
   transform: rotate(-1.5deg);
   user-select: none;
+  line-height: 1.2;
 }
 
 .stamp-taint {
   color: var(--signal-taint);
   border-color: var(--signal-taint);
+  background-color: var(--bg-paper);
 }
 
 .stamp-reaffirm {
   color: var(--signal-reaffirm);
   border-color: var(--signal-reaffirm);
+  background-color: var(--bg-paper);
 }
 
 .stamp-suspect {
   color: var(--signal-suspect);
   border-color: var(--signal-suspect);
+  background-color: var(--bg-paper);
 }
 
 .stamp-neutral {
   color: var(--signal-neutral);
   border-color: var(--signal-neutral);
+  background-color: var(--bg-paper);
 }
 
-/* Dossier Layout (Asymmetric Grid: 60% Canvas, 40% Ledger & Audit) */
+/* Accessible Interactive Elements: minimum 44px touch targets */
+.touch-target-44 {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Dossier Layout (Asymmetric Grid: ~62% Canvas, ~38% Ledger & Queues) */
 .dossier-grid {
   display: grid;
   grid-template-columns: 6.2fr 3.8fr;
@@ -137,20 +220,22 @@ body {
   }
 }
 
-/* Custom Minimal Scrollbars */
+/* Flat Neobrutalist Scrollbars */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
   background: var(--bg-paper-sunken);
+  border-left: 1px solid var(--ink-primary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--ink-border);
+  background: var(--ink-secondary);
+  border: 1px solid var(--ink-primary);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ink-muted);
+  background: var(--ink-primary);
 }
