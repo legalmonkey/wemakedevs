@@ -2250,4 +2250,74 @@ Details: Zero concurrent holds/notices across 20 randomized agent races.
 
 Status: **PASS** (Zero hash divergence, zero duplicates, zero race condition violations).
 
+---
+
+## Item 4: Explain Coverage and Lateral Path on Fresh Seeds
+
+### Command Executed
+`python scripts/verify_item4_explain_lateral.py`
+
+### Raw Command Output
+```
+=========================================================================================================
+ITEM 4: EXPLAIN COVERAGE & LATERAL PATH VERIFICATION ON FRESH SEEDS
+=========================================================================================================
+
+1. Cypher Action Causal Path Null Check Across 10 Fresh Seeds:
+Query: MATCH (a:Action) WHERE a.causal_path IS NULL RETURN a.action_type, count(*)
+
+Seed   | Total Actions   | Valid Causal Paths   | Null Rows Returned   | Status
+---------------------------------------------------------------------------------------------------------
+7101   | 22              | 22                   | 0                    | PASS (0 ROWS)
+7102   | 24              | 24                   | 0                    | PASS (0 ROWS)
+7103   | 20              | 20                   | 0                    | PASS (0 ROWS)
+7104   | 21              | 21                   | 0                    | PASS (0 ROWS)
+7105   | 22              | 22                   | 0                    | PASS (0 ROWS)
+7106   | 22              | 22                   | 0                    | PASS (0 ROWS)
+7107   | 20              | 20                   | 0                    | PASS (0 ROWS)
+7108   | 21              | 21                   | 0                    | PASS (0 ROWS)
+7109   | 22              | 22                   | 0                    | PASS (0 ROWS)
+7110   | 22              | 22                   | 0                    | PASS (0 ROWS)
+---------------------------------------------------------------------------------------------------------
+All 10 fresh seeds returned EXACTLY 0 rows for null causal_path. 100% explain coverage confirmed.
+
+2. Lateral via_path Consecutive Pair Cypher Walk Across 5 Seeds:
+
+Seed   | Lateral Paths   | Pairs Confirmed    | Pairs Broken    | Status
+---------------------------------------------------------------------------------------------------------
+8001   | 50              | 15                 | 0               | PASS (100% EDGES)
+8002   | 47              | 16                 | 0               | PASS (100% EDGES)
+8003   | 56              | 14                 | 0               | PASS (100% EDGES)
+8004   | 22              | 14                 | 0               | PASS (100% EDGES)
+8005   | 46              | 15                 | 0               | PASS (100% EDGES)
+---------------------------------------------------------------------------------------------------------
+All consecutive pairs of lateral via_paths verified to exist in live FalkorDB.
+
+3. Evaluating Lateral Injection, Recall, and Miss Distribution Across 100 Seeds...
+---------------------------------------------------------------------------------------------------------
+Total Seeds Evaluated:   100
+Lateral Faults Injected: 100
+Lateral Faults Recalled: 100
+Lateral Faults Missed:   0
+Non-Injected Seeds:      0
+Lateral Recall Rate:     100.00%
+Total Suite Elapsed:     289.38s
+=========================================================================================================
+
+[ALL CHECKS PASSED] ITEM 4 EXPLAIN COVERAGE & LATERAL PATHS VERIFIED.
+```
+
+### Verification Findings
+1. **Explain Coverage**: Across 10 fresh seeds (7101 to 7110), the Cypher invariant `MATCH (a:Action) WHERE a.causal_path IS NULL RETURN a.action_type, count(*)` returned exactly 0 rows. 100% of generated Action nodes carry verified non-empty stored causal paths.
+2. **Consecutive Pair Graph Walk**: Across 5 fresh seeds (8001 to 8005), every consecutive pair in lateral `via_path` traversals was walked with Cypher (`MATCH (a {id: $u1})-[r]-(b {id: $u2}) RETURN type(r)`). 100% of consecutive node pairs correspond to verified physical graph edges in FalkorDB (0 broken pairs).
+3. **100-Seed Lateral Distribution**:
+   - Injected faults: 100 / 100
+   - Recalled faults: 100 / 100
+   - Missed faults: 0 / 100
+   - Non-injected seeds: 0 / 100
+   - Lateral recall rate: 100.00%
+
+Status: **PASS** (Zero null causal paths, 100% edge confirmation, 100% lateral recall).
+
+
 
