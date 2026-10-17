@@ -499,8 +499,6 @@ class IncidentService:
                 self.actions_registry[action_id]["operator_notes"] = operator_notes
 
         action_node = self.graph_client.get_node(action_id)
-        action_kind = "containment"
-        procedure_id = "proc-standard-containment"
         if action_node:
             action_node.properties["approved"] = True
             action_kind = (
@@ -515,8 +513,12 @@ class IncidentService:
             )
             action_node.properties["action_kind"] = action_kind
             action_node.properties["kind"] = action_kind
+            action_node.properties["procedure_id"] = procedure_id
             if operator_notes:
                 action_node.properties["operator_notes"] = operator_notes
+        else:
+            action_kind = "draft_notice"
+            procedure_id = f"proc-{str(action_kind).replace('_', '-')}"
 
         # Demand 5: Dynamic procedure names and 'approved' outcome in per-tenant procedural memory
         memory = ProceduralMemory(tenant_id=self.current_tenant_id, graph_client=self.graph_client)
@@ -549,8 +551,6 @@ class IncidentService:
                 self.actions_registry[action_id]["operator_notes"] = operator_notes
 
         action_node = self.graph_client.get_node(action_id)
-        action_kind = "containment"
-        procedure_id = "proc-standard-containment"
         if action_node:
             action_node.properties["approved"] = False
             action_node.properties["rejected"] = True
@@ -566,8 +566,12 @@ class IncidentService:
             )
             action_node.properties["action_kind"] = action_kind
             action_node.properties["kind"] = action_kind
+            action_node.properties["procedure_id"] = procedure_id
             if operator_notes:
                 action_node.properties["operator_notes"] = operator_notes
+        else:
+            action_kind = "draft_notice"
+            procedure_id = f"proc-{str(action_kind).replace('_', '-')}"
 
         # Demand 5: Dynamic procedure names and 'rejected' outcome in per-tenant procedural memory
         memory = ProceduralMemory(tenant_id=self.current_tenant_id, graph_client=self.graph_client)

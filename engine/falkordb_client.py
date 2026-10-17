@@ -333,8 +333,12 @@ class FalkorDBGraphClient(QueryAPIProtocol):
         unit_id: str,
         hold_id: str,
         causal_path: List[str],
+        hold_procedure_id: Optional[str] = None,
+        notice_procedure_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Places quarantine hold and drafts recipient notices in a single atomic Cypher query (Demand 2 & 5)."""
+        hold_proc = hold_procedure_id or "proc-hold-unit"
+        notice_proc = notice_procedure_id or "proc-draft-notice"
         cypher = (
             "MATCH (u {id: $unit_id}) "
             "WHERE (coalesce(u.is_tainted, false) = true OR coalesce(u.verdict, '') = 'tainted') "
@@ -349,7 +353,7 @@ class FalkorDBGraphClient(QueryAPIProtocol):
             "              h.target_entity_id = u.id, h.causal_path = $causal_path, "
             "              h.path_hops = size($causal_path) - 1, h.approved = true, "
             "              h.requires_approval = false, h.reason_code = 'TAINT_CONFIRMED', "
-            "              h.procedure_id = 'proc-hold-unit', h.replayed = false "
+            "              h.procedure_id = $hold_procedure_id, h.replayed = false "
             "ON MATCH SET h.replayed = true, h.action_type = coalesce(h.action_type, 'hold_unit'), "
             "             h.causal_path = coalesce(h.causal_path, $causal_path), "
             "             h.path_hops = coalesce(h.path_hops, size($causal_path) - 1) "
@@ -366,7 +370,7 @@ class FalkorDBGraphClient(QueryAPIProtocol):
             "                  n.reason_code = 'EXPOSURE_DETECTED', n.unit_id = u.id, "
             "                  n.shipment_id = exp.ship_id, n.status = 'pending_approval', "
             "                  n.draft_content = 'Customer advisory notice prepared under declared safety protocol.', "
-            "                  n.procedure_id = 'proc-draft-notice', n.replayed = false, "
+            "                  n.procedure_id = $notice_procedure_id, n.replayed = false, "
             "                  n.causal_path = $causal_path + [exp.ship_id, exp.rec_id] "
             "    ON MATCH SET n.replayed = true, n.action_type = coalesce(n.action_type, 'draft_notice'), "
             "                 n.causal_path = coalesce(n.causal_path, $causal_path + [exp.ship_id, exp.rec_id]), "
@@ -381,6 +385,8 @@ class FalkorDBGraphClient(QueryAPIProtocol):
                 "unit_id": unit_id,
                 "hold_id": hold_id,
                 "causal_path": causal_path,
+                "hold_procedure_id": hold_proc,
+                "notice_procedure_id": notice_proc,
             },
         )
         if not res.result_set or len(res.result_set) == 0:

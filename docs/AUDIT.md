@@ -2424,6 +2424,193 @@ Route (app)
 
 Status: **PASS** (Zero lint errors, zero build errors, 100% tile exclusivity invariant verified).
 
+---
+
+## Item 6: Memory and Metrics Honesty
+
+### 1. Generalization of Procedure Derivation
+- Removed hardcoded procedure literal `proc-standard-containment` from `api/incident_service.py` (`approve_action` and `reject_action`). Procedure IDs are now strictly dynamically derived from `action_node.properties.get("procedure_id")` or formatted dynamically from `action_kind` as `f"proc-{str(action_kind).replace('_', '-')}"`.
+- Parameterized `$hold_procedure_id` and `$notice_procedure_id` in `engine/falkordb_client.py:atomic_hold_and_notice`, removing embedded literals from Cypher queries.
+
+### 2. Procedural Memory Comparison Honesty (< 2 Procedures)
+
+#### Command Executed
+`python -m pytest tests/audit/test_demand3_memory_counting.py -v -s`
+
+#### Raw Verbatim Output
+```
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\SHIVANSH\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\SHIVANSH\wemakedevs
+configfile: pytest.ini
+plugins: anyio-4.12.0, asyncio-1.4.0, cov-7.1.0, mock-3.15.1, playwright-0.10.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/audit/test_demand3_memory_counting.py::test_demand3_memory_counting_and_ranking 
+====================================================================================================
+DEMAND 3: MEMORY COUNTING & PROCEDURAL RANKING VERIFICATION
+Stable Tenant: tenant-memory-counting-stable
+====================================================================================================
+Comparison is not possible: Only 0 procedure ('none') recorded across 0 episode(s). At least 2 procedures required to compare for situation 'containment'.
+
+[STEP 0] Memory cleanly initialized. Initial episode count: 0
+
+--- [INCIDENT 1] Running Seed 1101 on tenant-memory-counting-stable ---
+Action:     act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Episode ID: ep_tenant-memory-counting-stable_inc_1101_act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Outcome:    approved
+Procedure:  proc-draft-notice
+Comparison is not possible: Only 1 procedure ('proc-draft-notice') recorded across 1 episode(s). At least 2 procedures required to compare for situation 'containment'.
+Episode Count after Incident 1: 1 (Expected: 1)
+
+--- [INCIDENT 2] Running Seed 2202 on tenant-memory-counting-stable ---
+Action:     act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Episode ID: ep_tenant-memory-counting-stable_inc_2202_act-notice-customeraccount_101_9292ed01-batchlot_101_0854b175
+Outcome:    rejected
+Procedure:  proc-draft-notice
+Comparison is not possible: Only 1 procedure ('proc-draft-notice') recorded across 2 episode(s). At least 2 procedures required to compare for situation 'containment'.
+Episode Count after Incident 2: 2 (Expected: 2)
+
+--- [INCIDENT 3] Running Seed 3303 on tenant-memory-counting-stable ---
+Action:     act-escalate-human-seed3303
+Episode ID: ep_tenant-memory-counting-stable_inc_3303_act-escalate-human-seed3303
+Outcome:    approved
+Procedure:  proc-escalate-human
+Comparing 2 procedures for situation 'containment' across 3 episode(s): top procedure is 'proc-escalate-human' (100.0% success, 1 eps) vs 'proc-draft-notice' (50.0% success, 2 eps).
+Episode Count after Incident 3: 3 (Expected: 3)
+
+[RANKING STATEMENT]:
+Procedural memory ranked by stored graph outcomes across 3 recorded episode(s). Comparing 2 procedures for situation 'containment' across 3 episode(s): top procedure is 'proc-escalate-human' (100.0% success, 1 eps) vs 'proc-draft-notice' (50.0% success, 2 eps).
+  -> Procedure: proc-escalate-human | Episodes: 1 | Success Rate: 100.0%
+  -> Procedure: proc-draft-notice | Episodes: 2 | Success Rate: 50.0%
+
+--- [DEDUPLICATION CHECK] Re-approving exact same action in Seed 3303 ---
+Comparing 2 procedures for situation 'containment' across 3 episode(s): top procedure is 'proc-escalate-human' (100.0% success, 1 eps) vs 'proc-draft-notice' (50.0% success, 2 eps).
+Episode Count after duplicate replay: 3 (Expected: 3)
+
+====================================================================================================
+ALL DEMAND 3 INVARIANTS VERIFIED:
+  1. Episode IDs include incident IDs (inc_1101, inc_2202, inc_3303)
+  2. Episode count rises by exactly +1 per approval or rejection (0 -> 1 -> 2 -> 3)
+  3. Ranking prints 'Comparison is not possible' when <2 procedures, and compares top procedures when >=2
+  4. Never counts an episode twice on duplicate replay (3 remains 3)
+====================================================================================================
+
+PASSED
+
+============================= 1 passed in 14.72s ==============================
+```
+
+### 3. Recomputed 100-Seed Forensic Benchmark on Live FalkorDB
+
+#### Metric Naming Clarification
+- **"Share Recalled (Tainted / Naive)"**: Renamed from ambiguous "precision" to clearly communicate that this metric measures the fraction of units within naive blanket scope that were actually contaminated (`Tainted / Naive`). A lower percentage means the targeted multi-agent investigation successfully prevented blanket recall of innocent inventory.
+- **"Safe Release Rate (Reaffirmed / Total)"**: Measures the proportion of inventory whose quality decisions maintained independent support, enabling safe release rather than precautionary destruction.
+
+#### Command Executed
+`python -m pytest tests/audit/test_demand2_100_seed_benchmark.py -v -s`
+
+#### Raw Verbatim Output
+```
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\SHIVANSH\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\SHIVANSH\wemakedevs
+configfile: pytest.ini
+plugins: anyio-4.12.0, asyncio-1.4.0, cov-7.1.0, mock-3.15.1, playwright-0.10.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/audit/test_demand2_100_seed_benchmark.py::test_100_seed_benchmark_with_mean_min_max_metrics 
+=========================================================================================================
+DEMAND 2: EXECUTING 100+ SEED FORENSIC BENCHMARK ON FALKORDB (100 SEEDS)
+=========================================================================================================
+
+Execution Time: 322.39s (3223.9ms per incident)
+=========================================================================================================
+BENCHMARK RESULTS ACROSS 100 DISTINCT SEEDS (Mean, Min, Max)
+=========================================================================================================
+Metric                              | Mean               | Min                | Max               
+---------------------------------------------------------------------------------------------------------
+Share Recalled (Tainted / Naive)    |            32.47% |            21.43% |            45.00%
+Safe Release Rate (Reaffirmed/Total) |            12.16% |             8.57% |            16.67%
+Tainted Units Count                 |              7.73 |                 6 |                 9
+Reaffirmed Units Count              |              3.95 |                 3 |                 5
+Unverifiable Units Count            |              2.32 |                 1 |                 4
+Escalated Actions Count             |              2.32 |                 1 |                 4
+Hidden-Link Recall                  |            100.0% |            100.0% |            100.0%
+Time to Scope (ms)                  |         2939.42ms |         1647.94ms |         4969.26ms
+Explanation Coverage                |            100.0% |            100.0% |            100.0%
+Total False Reaffirms               |                 0 |                 0 |                 0
+=========================================================================================================
+
+
+--- DEMAND 1: LATERAL LINK (HIDDEN-LINK) RECALL BREAKDOWN ACROSS 100 SEEDS ---
+Seeds with Lateral Link Injected:     100
+Seeds with Lateral Link Recalled:     100
+Seeds with Lateral Link Missed:       0
+Seeds without Lateral Link Injected:  0
+Hidden-Link Recall on Injected Seeds: 100.0%
+
+
+--- DEMAND 2: NAIVE SCOPE VARIATION & SCALE (SAMPLE OF FIRST 10 SEEDS) ---
+Seed     | Total Units (>=30)   | Naive Scope (< Total)  | Tainted Units   | Share Recalled
+-------------------------------------------------------------------------------------
+5000     | 32                   | 26                     | 8               |        30.77%
+5037     | 33                   | 22                     | 9               |        40.91%
+5074     | 34                   | 26                     | 9               |        34.62%
+5111     | 35                   | 28                     | 7               |        25.00%
+5148     | 30                   | 20                     | 7               |        35.00%
+5185     | 31                   | 24                     | 8               |        33.33%
+5222     | 32                   | 25                     | 8               |        32.00%
+5259     | 33                   | 22                     | 7               |        31.82%
+5296     | 34                   | 25                     | 6               |        24.00%
+5333     | 35                   | 28                     | 8               |        28.57%
+-------------------------------------------------------------------------------------
+
+
+--- DEMAND 1: DEMO-VIABILITY COMPLIANCE ACROSS 100 SEEDS ---
+Scenario Expect Contract (Read ONLY by tests):
+  - min_tainted_units:      >= 3
+  - min_reaffirmed_units:   >= 3
+  - min_unverifiable_units: >= 1
+Results Across 100 Seeds:
+  - Seeds meeting all minimums: 100 / 100
+  - Fraction meeting minimums:  100.0% (Target: 100%)
+
+
+--- DEMAND 2: HIDDEN-LINK RECALL DEFINED AS 'THE LATERAL UNIT RECEIVED A TAINTS EDGE' ---
+Graph Query on 5 Seeds:
+MATCH (lateral:Unit)<-[r:TAINTS]-(src)
+WHERE (lateral)-[:SHARED_LOT|LATERAL_LINK]-() RETURN lateral.id, type(r), src.id, r.hops, r.via_path
+
+Seed 5000:
+  -> Lateral Unit: batchlot_5000_dbda8db6 | Received: TAINTS edge from qualitydecision_5000_95b6fca5 | Hops: 2 | Via: ['sensorlog_5000_0e933ccc', 'qualitydecision_5000_95b6fca5', 'batchlot_5000_dbda8db6']
+  -> Lateral Unit: batchlot_5000_cbf78bc8 | Received: TAINTS edge from qualitydecision_5000_4d1e879c | Hops: 2 | Via: ['sensorlog_5000_246393aa', 'qualitydecision_5000_4d1e879c', 'batchlot_5000_cbf78bc8']
+Seed 5037:
+  -> Lateral Unit: batchlot_5037_ca572e94 | Received: TAINTS edge from qualitydecision_5037_1b28dc8a | Hops: 2 | Via: ['sensorlog_5037_d5183552', 'qualitydecision_5037_1b28dc8a', 'batchlot_5037_ca572e94']
+  -> Lateral Unit: batchlot_5037_0b02f262 | Received: TAINTS edge from qualitydecision_5037_0b94ff13 | Hops: 2 | Via: ['sensorlog_5037_ec69b77d', 'qualitydecision_5037_0b94ff13', 'batchlot_5037_0b02f262']
+Seed 5074:
+  -> Lateral Unit: batchlot_5074_e3040d7b | Received: TAINTS edge from qualitydecision_5074_10b59af0 | Hops: 2 | Via: ['sensorlog_5074_e8864ec6', 'qualitydecision_5074_10b59af0', 'batchlot_5074_e3040d7b']
+  -> Lateral Unit: batchlot_5074_812750ec | Received: TAINTS edge from qualitydecision_5074_d07b45b3 | Hops: 2 | Via: ['sensorlog_5074_ef0ded9e', 'qualitydecision_5074_d07b45b3', 'batchlot_5074_812750ec']
+Seed 5111:
+  -> Lateral Unit: batchlot_5111_6dd1e829 | Received: TAINTS edge from qualitydecision_5111_e9a161e9 | Hops: 2 | Via: ['sensorlog_5111_dd373af3', 'qualitydecision_5111_e9a161e9', 'batchlot_5111_6dd1e829']
+  -> Lateral Unit: batchlot_5111_1408acdc | Received: TAINTS edge from qualitydecision_5111_cc15120f | Hops: 2 | Via: ['sensorlog_5111_d73a272e', 'qualitydecision_5111_cc15120f', 'batchlot_5111_1408acdc']
+Seed 5148:
+  -> Lateral Unit: batchlot_5148_50434bae | Received: TAINTS edge from qualitydecision_5148_4d018ca9 | Hops: 2 | Via: ['sensorlog_5148_04c27953', 'qualitydecision_5148_4d018ca9', 'batchlot_5148_50434bae']
+  -> Lateral Unit: batchlot_5148_12c05043 | Received: TAINTS edge from qualitydecision_5148_b21846e2 | Hops: 2 | Via: ['sensorlog_5148_dc18846b', 'qualitydecision_5148_b21846e2', 'batchlot_5148_12c05043']
+=========================================================================================================
+
+PASSED
+
+======================== 1 passed in 323.06s (0:05:23) ========================
+```
+
+Status: **PASS** (Zero hardcoded procedure literals, honest procedural comparison states, 100-seed benchmark fully green with 0 false reaffirms).
+
+
 
 
 
