@@ -119,25 +119,19 @@ class IncidentService:
             elif verdict == "unverifiable" or status_lower in ("unverifiable", "status_unverifiable"):
                 stamp_text = "ESCALATED"
                 ink_token = "suspect"
+            elif verdict == "tainted" or status_lower in ("tainted", "status_tainted", "quarantined"):
+                stamp_text = "HOLD"
+                ink_token = "tainted"
             elif props.get("suspect") or props.get("is_suspect") or status_lower in ("suspect", "status_suspect"):
                 stamp_text = "SUSPECT"
                 ink_token = "suspect"
-            elif status_lower in ("tainted", "status_tainted") or (props.get("is_tainted") and verdict != "reaffirmed"):
-                stamp_text = "HOLD"
-                ink_token = "tainted"
-            elif role_val.lower() == "event":
-                stamp_text = "ALERT"
-                ink_token = "suspect"
-            elif role_val.lower() == "action":
-                if "release" in node.kind.lower():
-                    stamp_text = "RELEASE"
-                    ink_token = "reaffirmed"
-                elif "notice" in node.kind.lower():
-                    stamp_text = "NOTICE"
-                    ink_token = "tainted"
-                else:
-                    stamp_text = "HOLD"
-                    ink_token = "tainted"
+
+            # Stamps appear only on units and decisions (Requirement 3)
+            if role_val.lower() not in ("unit", "decision"):
+                stamp_text = None
+            elif stamp_text is None and status_lower in reg_mapping:
+                stamp_text = reg_mapping[status_lower]["stamp_text"]
+                ink_token = reg_mapping[status_lower]["ink_token"]
             elif status_lower in reg_mapping:
                 stamp_text = reg_mapping[status_lower]["stamp_text"]
                 ink_token = reg_mapping[status_lower]["ink_token"]
@@ -200,8 +194,8 @@ class IncidentService:
 
         # Compute forensic comparative stats
         units = [n for n in nodes if n.role.lower() == "unit"]
-        tainted_units = [u for u in units if u.status == "tainted" or (u.properties.get("is_tainted") and u.properties.get("verdict") != "reaffirmed" and u.status != "reaffirmed")]
-        reaffirmed_units = [u for u in units if u.status == "reaffirmed" or u.properties.get("verdict") == "reaffirmed" or not u.properties.get("is_tainted")]
+        tainted_units = [u for u in units if u.status in ("tainted", "quarantined") or u.properties.get("verdict") == "tainted" or u.stamp_text == "HOLD"]
+        reaffirmed_units = [u for u in units if u.status == "reaffirmed" or u.properties.get("verdict") == "reaffirmed" or u.stamp_text == "REAFFIRMED"]
         # Genuine naive recall: blanket recall hits all units in the facility/batch graph
         naive_units_count = len(units)
 

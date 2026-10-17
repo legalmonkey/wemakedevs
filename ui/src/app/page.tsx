@@ -140,12 +140,6 @@ interface GateCheckResult {
   gate_query: string;
 }
 
-interface NodePosition {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -164,6 +158,32 @@ export default function ForensicDossier() {
   const [isTriggering, setIsTriggering] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("System standing by on active tenant graph. All nodes verified by policy.");
   const [timeToScopeMs, setTimeToScopeMs] = useState<number>(3.4);
+
+  // Canvas Viewport & Navigation Controls (Requirement 1)
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Collapsible Right Drawer for Ledger & Cypher Log (Requirement 1 & 6)
+  const [isLedgerOpen, setIsLedgerOpen] = useState<boolean>(false);
+  const [drawerTab, setDrawerTab] = useState<"ledger" | "queries">("ledger");
+  const [showAllEvents, setShowAllEvents] = useState<boolean>(false);
+
+  // Filter Chips & Selection Focus (Requirement 3)
+  type FilterChip = "all" | "held" | "reaffirmed" | "escalated" | "suspect" | "lateral";
+  const [activeFilter, setActiveFilter] = useState<FilterChip>("all");
+  const [focusOnSelection, setFocusOnSelection] = useState<boolean>(false);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Propagation Discrete Animation (Requirement 4)
+  const [animatingHop, setAnimatingHop] = useState<number>(-1);
+  const [reaffirmedGreenActive, setReaffirmedGreenActive] = useState<boolean>(true);
+
+  // Collapsible First-Time Clarity Legend (Requirement 8)
+  const [showHowToRead, setShowHowToRead] = useState<boolean>(true);
 
   // "Needs a Person" Queue State
   const [pendingQueue, setPendingQueue] = useState<PendingActionItem[]>([]);
@@ -191,6 +211,23 @@ export default function ForensicDossier() {
   const [apiError, setApiError] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Keyboard shortcut listener (L toggles ledger, ESC closes drawers)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(targetTag)) return;
+
+      if (e.key === "l" || e.key === "L") {
+        setIsLedgerOpen((prev) => !prev);
+      } else if (e.key === "Escape") {
+        if (whyDrawerOpen) setWhyDrawerOpen(false);
+        if (isLedgerOpen) setIsLedgerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [whyDrawerOpen, isLedgerOpen]);
 
   // Fetch pending actions queue
   const fetchPendingQueue = useCallback(async () => {
@@ -235,17 +272,6 @@ export default function ForensicDossier() {
       // Ignore
     }
   }, []);
-
-  // Keyboard shortcut listener (ESC to close Why drawer)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && whyDrawerOpen) {
-        setWhyDrawerOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [whyDrawerOpen]);
 
   // Initial Data & SSE Handshake
   useEffect(() => {
@@ -315,6 +341,47 @@ export default function ForensicDossier() {
     };
   }, [fetchGraphSnapshot, fetchQueryLog, fetchPendingQueue]);
 
+  // Discrete Propagation Hop Animation (Requirement 4)
+  const startPropagationAnimation = useCallback(() => {
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReduced) {
+      setAnimatingHop(-1);
+      setReaffirmedGreenActive(true);
+      return;
+    }
+
+    setAnimatingHop(0); // Hop 0: Alert
+    setReaffirmedGreenActive(false);
+
+    // Hop 0 -> Hop 1 (Evidence)
+    setTimeout(() => {
+      setAnimatingHop(1);
+      // Hop 1 -> Hop 2 (Decision)
+      setTimeout(() => {
+        setAnimatingHop(2);
+        // Hop 2 -> Hop 3 (Unit column: initial hold)
+        setTimeout(() => {
+          setAnimatingHop(3);
+          // Short hold, then show reaffirmed units turning green!
+          setTimeout(() => {
+            setReaffirmedGreenActive(true);
+            // Hop 3 -> Hop 4 (Shipment & Recipient notices)
+            setTimeout(() => {
+              setAnimatingHop(4);
+              // Complete animation
+              setTimeout(() => {
+                setAnimatingHop(-1);
+              }, 500);
+            }, 400);
+          }, 350);
+        }, 400);
+      }, 400);
+    }, 400);
+  }, []);
+
   // Trigger live multi-agent incident run
   const handleTriggerIncident = async (seedToRun: number) => {
     setIsTriggering(true);
@@ -335,8 +402,9 @@ export default function ForensicDossier() {
           await fetchGraphSnapshot();
           await fetchPendingQueue();
           const elapsed = performance.now() - startTime;
-          setTimeToScopeMs(Number((elapsed / 10).toFixed(2)));
+          setTimeToScopeMs(Number(elapsed.toFixed(1)));
           setStatusMessage(`Incident containment trace complete on Seed ${seedToRun}. All causal paths verified by Cypher gates.`);
+          startPropagationAnimation();
         }, 600);
       }
     } catch (err) {
@@ -425,198 +493,273 @@ export default function ForensicDossier() {
     }
   };
 
-  const [canvasFilter, setCanvasFilter] = useState<"active" | "all">("active");
+  // Helpers for Decluttering (Requirement 3)
+  const getShortSuffix = useCallback((id: string): string => {
+    if (!id) return "";
+    const parts = id.split("-");
+    if (parts.length >= 2) {
+      return `${parts[parts.length - 2]}-${parts[parts.length - 1]}`;
+    }
+    return id.slice(-8);
+  }, []);
 
-  // Filter nodes for active incident perimeter vs all facility nodes
+  // Filter nodes according to active filter chip (Requirement 3)
   const displayedNodes = useMemo(() => {
-    if (canvasFilter === "all" || nodes.length <= 30) return nodes;
+    if (nodes.length === 0) return [];
 
-    const incidentIds = new Set<string>();
-    nodes.forEach((n) => {
-      const s = (n.status || "").toLowerCase();
-      const stamp = (n.stamp_text || "").toUpperCase();
-      const ink = (n.ink_token || "").toLowerCase();
-      if (
-        s.includes("taint") ||
-        s.includes("reaffirm") ||
-        s.includes("suspect") ||
-        s.includes("unverifiable") ||
-        stamp === "HOLD" ||
-        stamp === "REAFFIRMED" ||
-        stamp === "SUSPECT" ||
-        stamp === "ESCALATED" ||
-        ink === "tainted" ||
-        ink === "reaffirmed" ||
-        ink === "suspect" ||
-        n.role.toLowerCase() === "action" ||
-        n.role.toLowerCase() === "event"
-      ) {
-        incidentIds.add(n.id);
-      }
-    });
+    if (activeFilter === "reaffirmed") {
+      return nodes.filter((n) => {
+        const s = (n.status || "").toLowerCase();
+        const stamp = (n.stamp_text || "").toUpperCase();
+        const verdict = String(n.properties?.verdict || "").toLowerCase();
+        return stamp === "REAFFIRMED" || s === "reaffirmed" || verdict === "reaffirmed";
+      });
+    }
+    if (activeFilter === "held") {
+      return nodes.filter((n) => {
+        const s = (n.status || "").toLowerCase();
+        const stamp = (n.stamp_text || "").toUpperCase();
+        const verdict = String(n.properties?.verdict || "").toLowerCase();
+        if (stamp === "REAFFIRMED" || s === "reaffirmed" || verdict === "reaffirmed") return false;
+        return stamp === "HOLD" || s === "tainted" || s === "quarantined" || verdict === "tainted";
+      });
+    }
+    if (activeFilter === "escalated") {
+      return nodes.filter((n) => {
+        const s = (n.status || "").toLowerCase();
+        const stamp = (n.stamp_text || "").toUpperCase();
+        const verdict = String(n.properties?.verdict || "").toLowerCase();
+        return stamp === "ESCALATED" || s === "escalated" || s === "unverifiable" || verdict === "unverifiable";
+      });
+    }
+    if (activeFilter === "suspect") {
+      return nodes.filter((n) => {
+        const s = (n.status || "").toLowerCase();
+        const stamp = (n.stamp_text || "").toUpperCase();
+        return stamp === "SUSPECT" || s === "suspect" || Boolean(n.properties?.is_suspect);
+      });
+    }
+    if (activeFilter === "lateral") {
+      const lateralNodeIds = new Set<string>();
+      edges.forEach((e) => {
+        if (e.is_lateral || e.kind === "LATERAL_LINK" || e.kind === "SHARED_LOT") {
+          lateralNodeIds.add(e.source_id);
+          lateralNodeIds.add(e.target_id);
+        }
+      });
+      return nodes.filter((n) => lateralNodeIds.has(n.id));
+    }
 
-    edges.forEach((e) => {
-      if (e.is_taint || e.is_lateral) {
-        incidentIds.add(e.source_id);
-        incidentIds.add(e.target_id);
-      }
-    });
-
-    if (incidentIds.size === 0) return nodes.slice(0, 30);
-    return nodes.filter((n) => incidentIds.has(n.id));
-  }, [nodes, edges, canvasFilter]);
+    // Default "all": show active incident nodes
+    return nodes;
+  }, [nodes, edges, activeFilter]);
 
   const displayedEdges = useMemo(() => {
     const nodeSet = new Set(displayedNodes.map((n) => n.id));
     return edges.filter((e) => nodeSet.has(e.source_id) && nodeSet.has(e.target_id));
   }, [edges, displayedNodes]);
 
-  // STYLED FORCE LAYOUT SIMULATION (Pure TypeScript, discrete steps, zero external dependencies)
-  const nodePositions = useMemo(() => {
-    if (displayedNodes.length === 0) return {};
-
-    const width = 1180;
-    const height = 640;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    const defaultRoles = ["event", "evidence", "decision", "unit", "shipment", "recipient"];
-    const orderedRoles =
-      registry?.role_order && registry.role_order.length > 0
-        ? registry.role_order.map((r) => r.toLowerCase())
-        : defaultRoles;
-
-    const roleBands: Record<string, number> = {};
-    const marginX = 110;
-    const availableWidth = width - marginX * 2;
-    orderedRoles.forEach((r, idx) => {
-      const fraction = orderedRoles.length > 1 ? idx / (orderedRoles.length - 1) : 0.5;
-      roleBands[r] = Math.round(marginX + fraction * availableWidth);
+  // Connected selection nodes for Focus Mode (Requirement 3)
+  const connectedSelectionIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!selectedEntityId) return set;
+    set.add(selectedEntityId);
+    if (whyData?.causal_path) {
+      whyData.causal_path.forEach((id) => set.add(id));
+    }
+    edges.forEach((e) => {
+      if (e.source_id === selectedEntityId) set.add(e.target_id);
+      if (e.target_id === selectedEntityId) set.add(e.source_id);
     });
-    if (!roleBands["action"]) {
-      roleBands["action"] = roleBands[orderedRoles[orderedRoles.length - 1]] || 1070;
+    return set;
+  }, [selectedEntityId, whyData, edges]);
+
+  // LAYERED LEFT-TO-RIGHT LAYOUT BY NODE ROLE (Requirement 2)
+  // Order: alert, evidence, decision, unit, shipment, recipient from registry, zero hardcoding
+  const roleOrder = useMemo(() => {
+    if (registry?.role_order && Array.isArray(registry.role_order) && registry.role_order.length > 0) {
+      return registry.role_order.map((r) => r.toLowerCase());
+    }
+    return ["event", "evidence", "decision", "unit", "shipment", "recipient"];
+  }, [registry]);
+
+  const { nodePositions, totalCanvasWidth, totalCanvasHeight, startX, colSpacing } = useMemo(() => {
+    if (displayedNodes.length === 0) {
+      return { nodePositions: {}, totalCanvasWidth: 1400, totalCanvasHeight: 700, startX: 140, colSpacing: 280 };
     }
 
-    const posMap: Record<string, NodePosition> = {};
-    const roleCounts: Record<string, number> = {};
+    // 1. Group nodes into columns by role
+    const colMap: Record<number, GraphNode[]> = {};
+    roleOrder.forEach((_, idx) => {
+      colMap[idx] = [];
+    });
 
     displayedNodes.forEach((node) => {
-      const roleKey = node.role.toLowerCase();
-      const bandX = roleBands[roleKey] || centerX;
-      const count = roleCounts[roleKey] || 0;
-      roleCounts[roleKey] = count + 1;
-
-      const spacing = Math.max(54, Math.floor(520 / (roleCounts[roleKey] + 1)));
-      const yOffset = 70 + (count * spacing) % (height - 130);
-      posMap[node.id] = {
-        x: bandX,
-        y: yOffset,
-        vx: 0,
-        vy: 0,
-      };
-    });
-
-    const iterations = 60;
-    const kRepel = 3200;
-    const kAttract = 0.05;
-    const damping = 0.85;
-
-    for (let iter = 0; iter < iterations; iter++) {
-      const nodeIds = Object.keys(posMap);
-      for (let i = 0; i < nodeIds.length; i++) {
-        for (let j = i + 1; j < nodeIds.length; j++) {
-          const idA = nodeIds[i];
-          const idB = nodeIds[j];
-          const a = posMap[idA];
-          const b = posMap[idB];
-
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-          if (dist < 140) {
-            const force = kRepel / (dist * dist);
-            const fx = (dx / dist) * force;
-            const fy = (dy / dist) * force;
-            a.vx -= fx;
-            a.vy -= fy;
-            b.vx += fx;
-            b.vy += fy;
-          }
-
-          // Strict collision prevention: push overlapping rectangles apart
-          if (Math.abs(dx) < 86 && Math.abs(dy) < 52) {
-            const overlapY = (52 - Math.abs(dy)) * (dy >= 0 ? 1 : -1);
-            a.vy -= overlapY * 0.4;
-            b.vy += overlapY * 0.4;
-          }
+      let roleKey = (node.role || "").toLowerCase();
+      if (roleKey === "alert") roleKey = "event";
+      let colIdx = roleOrder.indexOf(roleKey);
+      if (colIdx === -1) {
+        if (roleKey === "action") {
+          colIdx = Math.min(3, roleOrder.length - 1);
+        } else {
+          colIdx = 0;
         }
       }
+      if (!colMap[colIdx]) colMap[colIdx] = [];
+      colMap[colIdx].push(node);
+    });
 
-      displayedEdges.forEach((edge) => {
-        const src = posMap[edge.source_id];
-        const dst = posMap[edge.target_id];
-        if (src && dst) {
-          const dx = dst.x - src.x;
-          const dy = dst.y - src.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = (dist - 110) * kAttract;
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          src.vx += fx * 0.5;
-          src.vy += fy * 0.5;
-          dst.vx -= fx * 0.5;
-          dst.vy -= fy * 0.5;
-        }
-      });
+    // 2. Build adjacency for Barycentric Sorting to minimize edge crossings
+    const adjacency: Record<string, string[]> = {};
+    displayedEdges.forEach((e) => {
+      if (!adjacency[e.source_id]) adjacency[e.source_id] = [];
+      if (!adjacency[e.target_id]) adjacency[e.target_id] = [];
+      adjacency[e.source_id].push(e.target_id);
+      adjacency[e.target_id].push(e.source_id);
+    });
 
-      nodeIds.forEach((id) => {
-        const p = posMap[id];
-        const node = displayedNodes.find((n) => n.id === id);
-        const roleKey = node ? node.role.toLowerCase() : "unit";
-        const targetX = roleBands[roleKey] || centerX;
+    // Sort Column 0 by ID
+    colMap[0].sort((a, b) => a.id.localeCompare(b.id));
 
-        p.vx += (targetX - p.x) * 0.08;
-        p.vy += (centerY - p.y) * 0.01;
+    // Barycentric sort each subsequent column
+    for (let c = 1; c < roleOrder.length; c++) {
+      const prevCol = colMap[c - 1] || [];
+      const prevIndices = new Map<string, number>();
+      prevCol.forEach((n, idx) => prevIndices.set(n.id, idx));
 
-        p.x += p.vx * damping;
-        p.y += p.vy * damping;
-        p.vx *= 0.6;
-        p.vy *= 0.6;
+      colMap[c].sort((a, b) => {
+        const aNeighbors = (adjacency[a.id] || []).filter((id) => prevIndices.has(id));
+        const bNeighbors = (adjacency[b.id] || []).filter((id) => prevIndices.has(id));
 
-        p.x = Math.max(60, Math.min(width - 60, p.x));
-        p.y = Math.max(50, Math.min(height - 50, p.y));
+        const aAvg =
+          aNeighbors.length > 0
+            ? aNeighbors.reduce((sum, id) => sum + (prevIndices.get(id) ?? 0), 0) / aNeighbors.length
+            : 999;
+        const bAvg =
+          bNeighbors.length > 0
+            ? bNeighbors.reduce((sum, id) => sum + (prevIndices.get(id) ?? 0), 0) / bNeighbors.length
+            : 999;
+
+        if (aAvg !== bAvg) return aAvg - bAvg;
+        return a.id.localeCompare(b.id);
       });
     }
 
-    return posMap;
-  }, [displayedNodes, displayedEdges, registry]);
+    // 3. Strict non-overlapping coordinate generation with widescreen aspect ratio
+    const nodeHeight = 36;
+    const nodeGap = 16;
+    const slotHeight = nodeHeight + nodeGap; // 52px per slot: guaranteed non-overlapping
 
-  // Compute 4 dynamic counts
-  const counts = useMemo(() => {
+    const maxNodesInCol = Math.max(1, ...Object.values(colMap).map((list) => list.length));
+    const virtualHeight = Math.max(650, maxNodesInCol * slotHeight + 140);
+    // Balanced widescreen aspect ratio (~1.9) ensures columns span the full viewport width
+    const virtualWidth = Math.max(1500, Math.round(virtualHeight * 1.9));
+
+    const startX = 140;
+    const colSpacing =
+      roleOrder.length > 1
+        ? Math.round((virtualWidth - 2 * startX) / (roleOrder.length - 1))
+        : 280;
+
+    const pos: Record<string, { x: number; y: number; col: number; row: number }> = {};
+
+    roleOrder.forEach((_, c) => {
+      const list = colMap[c] || [];
+      const colTotalH = list.length * slotHeight;
+      const startY = Math.max(70, (virtualHeight - colTotalH) / 2);
+
+      list.forEach((node, r) => {
+        pos[node.id] = {
+          x: startX + c * colSpacing,
+          y: startY + r * slotHeight,
+          col: c,
+          row: r,
+        };
+      });
+    });
+
+    return {
+      nodePositions: pos,
+      totalCanvasWidth: virtualWidth,
+      totalCanvasHeight: virtualHeight,
+      startX,
+      colSpacing,
+    };
+  }, [displayedNodes, displayedEdges, roleOrder]);
+
+  // Compute 4 dynamic counts - STRICTLY COUNTING UNITS ONLY (Requirement 5)
+  const unitCounts = useMemo(() => {
+    const unitNodes = nodes.filter((n) => (n.role || "").toLowerCase() === "unit");
+    const total = unitNodes.length || stats?.total_units || 0;
+
     let held = 0;
     let reaffirmed = 0;
     let escalated = 0;
     let suspect = 0;
 
-    nodes.forEach((n) => {
-      const s = (n.status || "").toLowerCase();
-      const stamp = (n.stamp_text || "").toUpperCase();
-      const ink = (n.ink_token || "").toLowerCase();
+    unitNodes.forEach((u) => {
+      const s = (u.status || "").toLowerCase();
+      const stamp = (u.stamp_text || "").toUpperCase();
+      const verdict = String(u.properties?.verdict || "").toLowerCase();
 
-      if (stamp === "HOLD" || s.includes("taint") || ink === "tainted") {
-        held++;
-      } else if (stamp === "REAFFIRMED" || s.includes("reaffirm") || ink === "reaffirmed") {
+      if (stamp === "REAFFIRMED" || s === "reaffirmed" || verdict === "reaffirmed") {
         reaffirmed++;
-      } else if (stamp === "ESCALATED" || s.includes("unverifiable")) {
+      } else if (stamp === "ESCALATED" || s === "escalated" || s === "unverifiable" || verdict === "unverifiable") {
         escalated++;
-      } else if (stamp === "SUSPECT" || s.includes("suspect") || ink === "suspect") {
+      } else if (stamp === "HOLD" || s === "tainted" || s === "quarantined" || verdict === "tainted") {
+        held++;
+      } else if (stamp === "SUSPECT" || s === "suspect" || Boolean(u.properties?.is_suspect)) {
         suspect++;
       }
     });
 
-    return { held, reaffirmed, escalated, suspect };
-  }, [nodes]);
+    return { held, reaffirmed, escalated, suspect, total };
+  }, [nodes, stats]);
+
+  // Filter agent.status noise with no entities (Requirement 6)
+  const visibleEvents = useMemo(() => {
+    return events.filter((e) => {
+      if (showAllEvents) return true;
+      if (e.event_type === "agent.status" && (!e.entity_ids || e.entity_ids.length === 0)) {
+        return false;
+      }
+      return true;
+    });
+  }, [events, showAllEvents]);
+
+  // Group events by incident phase (Requirement 6)
+  const groupedPhases = useMemo(() => {
+    const p1: EventItem[] = [];
+    const p2: EventItem[] = [];
+    const p3: EventItem[] = [];
+    const p4: EventItem[] = [];
+    const p5: EventItem[] = [];
+
+    visibleEvents.forEach((evt) => {
+      const et = evt.event_type.toLowerCase();
+      if (et.includes("alert") || et.includes("ingest") || et.includes("seed")) {
+        p1.push(evt);
+      } else if (et.includes("taint") || et.includes("trace") || et.includes("lateral") || et.includes("hop")) {
+        p2.push(evt);
+      } else if (et.includes("decision") || et.includes("adjudic") || et.includes("reaffirm") || et.includes("verdict")) {
+        p3.push(evt);
+      } else if (et.includes("action") || et.includes("hold") || et.includes("notice") || et.includes("approval") || et.includes("dispatch")) {
+        p4.push(evt);
+      } else {
+        p5.push(evt);
+      }
+    });
+
+    const groups = [
+      { id: "p1", name: "Phase 1: Ingestion & Telemetry Alerts", events: p1 },
+      { id: "p2", name: "Phase 2: Taint Tracing & Lateral Spread", events: p2 },
+      { id: "p3", name: "Phase 3: Independent Policy Adjudication", events: p3 },
+      { id: "p4", name: "Phase 4: Containment Actions & Human Notices", events: p4 },
+      { id: "p5", name: "Phase 5: Agent Lifecycle & System Events", events: p5 },
+    ];
+
+    return groups.filter((g) => g.events.length > 0);
+  }, [visibleEvents]);
 
   // Helper to format pack vocabulary terms dynamically (Requirement 2 & 12)
   const formatVocab = useCallback(
@@ -818,18 +961,18 @@ export default function ForensicDossier() {
           </button>
         </div>
 
-        {/* Right: Four Distinct Neobrutalist State Counts Tiles */}
+        {/* Right: Four Distinct Neobrutalist State Counts Tiles (Units Only with Denominator - Requirement 5) */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
           {/* Held / Tainted Tile */}
           <div
             className="border-neo"
             style={{
-              padding: "4px 14px",
+              padding: "4px 12px",
               backgroundColor: "var(--bg-paper)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              minWidth: "72px",
+              minWidth: "90px",
             }}
           >
             <span className="mono-label" style={{ color: "var(--signal-taint)", fontSize: "10px" }}>
@@ -844,7 +987,10 @@ export default function ForensicDossier() {
                 lineHeight: 1.1,
               }}
             >
-              {counts.held}
+              {unitCounts.held}
+            </span>
+            <span className="font-mono" style={{ fontSize: "9px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+              {unitCounts.held} of {unitCounts.total} batches
             </span>
           </div>
 
@@ -852,12 +998,12 @@ export default function ForensicDossier() {
           <div
             className="border-neo"
             style={{
-              padding: "4px 14px",
+              padding: "4px 12px",
               backgroundColor: "var(--bg-paper)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              minWidth: "72px",
+              minWidth: "90px",
             }}
           >
             <span className="mono-label" style={{ color: "var(--signal-reaffirm)", fontSize: "10px" }}>
@@ -872,7 +1018,10 @@ export default function ForensicDossier() {
                 lineHeight: 1.1,
               }}
             >
-              {counts.reaffirmed}
+              {unitCounts.reaffirmed}
+            </span>
+            <span className="font-mono" style={{ fontSize: "9px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+              {unitCounts.reaffirmed} of {unitCounts.total} batches
             </span>
           </div>
 
@@ -880,12 +1029,12 @@ export default function ForensicDossier() {
           <div
             className="border-neo"
             style={{
-              padding: "4px 14px",
+              padding: "4px 12px",
               backgroundColor: "var(--bg-paper)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              minWidth: "72px",
+              minWidth: "90px",
             }}
           >
             <span className="mono-label" style={{ color: "var(--signal-suspect)", fontSize: "10px" }}>
@@ -900,7 +1049,10 @@ export default function ForensicDossier() {
                 lineHeight: 1.1,
               }}
             >
-              {counts.escalated}
+              {unitCounts.escalated}
+            </span>
+            <span className="font-mono" style={{ fontSize: "9px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+              {unitCounts.escalated} of {unitCounts.total} batches
             </span>
           </div>
 
@@ -908,12 +1060,12 @@ export default function ForensicDossier() {
           <div
             className="border-neo"
             style={{
-              padding: "4px 14px",
+              padding: "4px 12px",
               backgroundColor: "var(--bg-paper)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              minWidth: "72px",
+              minWidth: "90px",
             }}
           >
             <span className="mono-label" style={{ color: "var(--ink-secondary)", fontSize: "10px" }}>
@@ -928,9 +1080,44 @@ export default function ForensicDossier() {
                 lineHeight: 1.1,
               }}
             >
-              {counts.suspect}
+              {unitCounts.suspect}
+            </span>
+            <span className="font-mono" style={{ fontSize: "9px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+              {unitCounts.suspect} of {unitCounts.total} batches
             </span>
           </div>
+
+          {/* Collapsible Ledger Drawer Toggle Button (Requirement 1 & 6) */}
+          <button
+            onClick={() => setIsLedgerOpen((prev) => !prev)}
+            className="border-neo font-mono shadow-neo-btn touch-target-44"
+            style={{
+              padding: "6px 14px",
+              backgroundColor: isLedgerOpen ? "var(--ink-primary)" : "var(--bg-paper)",
+              color: isLedgerOpen ? "var(--bg-paper)" : "var(--ink-primary)",
+              cursor: "pointer",
+              fontSize: "11px",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+            title="Toggle Forensic Ledger & Cypher Log (Keyboard Shortcut: L)"
+          >
+            <span>LEDGER &amp; LOG</span>
+            <span
+              style={{
+                backgroundColor: isLedgerOpen ? "var(--bg-paper)" : "var(--ink-primary)",
+                color: isLedgerOpen ? "var(--ink-primary)" : "var(--bg-paper)",
+                padding: "1px 5px",
+                fontSize: "9px",
+                fontWeight: 700,
+              }}
+            >
+              {events.length}
+            </span>
+            <span style={{ fontSize: "9px", opacity: 0.75 }}>[L]</span>
+          </button>
         </div>
       </section>
 
@@ -1047,19 +1234,13 @@ export default function ForensicDossier() {
       {/* (A) EVIDENCE CANVAS VIEW */}
       {activeTab === "canvas" && (
         <main className="dossier-grid">
-          {/* Left Column: ~62% Graph Canvas */}
-          <section
-            className="border-neo-right"
+          {/* Collapsible First-Time Clarity Strip (Requirement 8) */}
+          <div
+            className="border-neo-bottom"
             style={{
-              position: "relative",
               backgroundColor: "var(--bg-paper)",
-              padding: "12px 16px",
-              display: "flex",
-              flexDirection: "column",
-              minWidth: 0,
-              minHeight: 0,
-              height: "100%",
-              overflow: "hidden",
+              padding: "8px 16px",
+              flexShrink: 0,
             }}
           >
             <div
@@ -1067,143 +1248,433 @@ export default function ForensicDossier() {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                marginBottom: "8px",
-                flexShrink: 0,
-                flexWrap: "wrap",
-                gap: "8px",
+                cursor: "pointer",
               }}
+              onClick={() => setShowHowToRead((prev) => !prev)}
             >
-              <div className="mono-label" style={{ color: "var(--ink-secondary)" }}>
-                {registry?.vocabulary?.evidence_board_title || "Forensic Evidence Canvas"} · Active
-                Tenant: {stats ? `tenant-seed-${activeSeed}` : "tenant-alpha"}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span className="mono-label" style={{ color: "var(--ink-primary)", fontWeight: 700 }}>
+                  HOW TO READ THIS EVIDENCE CANVAS
+                </span>
+                <span className="font-mono" style={{ fontSize: "11px", color: "var(--ink-secondary)" }}>
+                  (6-step supply chain role order &amp; 3 stamp definitions)
+                </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <button
-                  onClick={() => setCanvasFilter((prev) => (prev === "active" ? "all" : "active"))}
-                  className="font-mono border-neo touch-target-44"
-                  style={{
-                    padding: "4px 12px",
-                    backgroundColor: canvasFilter === "active" ? "var(--bg-paper)" : "var(--bg-paper-elevated)",
-                    color: "var(--ink-primary)",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    fontSize: "11px",
-                    boxShadow: "var(--shadow-interactive)",
-                  }}
-                >
-                  {canvasFilter === "active"
-                    ? `PERIMETER FILTER: ON (${displayedNodes.length} NODES)`
-                    : `SHOWING ALL NODES (${nodes.length})`}
-                </button>
-                <div className="font-mono" style={{ fontSize: "11px", color: "var(--ink-muted)" }}>
-                  Click any node to inspect Why trajectory in &le; 2 steps
-                </div>
-              </div>
+              <button
+                type="button"
+                className="font-mono border-neo"
+                style={{
+                  padding: "2px 8px",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  backgroundColor: "var(--bg-paper-elevated)",
+                  cursor: "pointer",
+                }}
+              >
+                {showHowToRead ? "HIDE GUIDE ▲" : "SHOW GUIDE ▼"}
+              </button>
             </div>
 
-            {/* SVG Graph Canvas Stage */}
-            <div
-              className="border-neo"
-              style={{
-                flex: 1,
-                minHeight: 0,
-                minWidth: 0,
-                height: "100%",
-                backgroundColor: "var(--bg-paper-sunken)",
-                position: "relative",
-                overflow: "hidden",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {displayedNodes.length === 0 ? (
-                /* Designed Empty State */
+            {showHowToRead && (
+              <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px dashed var(--ink-border)" }}>
+                {/* 6-step Plain Language Legend */}
                 <div
                   style={{
-                    height: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "32px",
-                    textAlign: "center",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                    gap: "8px",
+                    marginBottom: "8px",
                   }}
                 >
-                  <h2
-                    className="font-display"
-                    style={{ fontSize: "22px", marginBottom: "8px", color: "var(--ink-primary)" }}
-                  >
-                    Evidence Graph Awaiting Incident Signal
-                  </h2>
-                  <p
-                    className="font-body"
-                    style={{
-                      color: "var(--ink-secondary)",
-                      fontSize: "16px",
-                      maxWidth: "480px",
-                      marginBottom: "20px",
-                    }}
-                  >
-                    Launch an incident run to trace causal contamination, hold compromised batches, and reaffirm clean lots.
-                  </p>
-                  <button
-                    onClick={() => handleTriggerIncident(101)}
-                    className="shadow-neo-btn font-mono touch-target-44"
-                    style={{
-                      padding: "10px 24px",
-                      backgroundColor: "var(--ink-primary)",
-                      color: "var(--bg-paper)",
-                      border: "var(--border-neo)",
-                      cursor: "pointer",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    INVESTIGATE SEED 101
-                  </button>
+                  <div className="font-mono" style={{ fontSize: "11px", padding: "6px 8px", backgroundColor: "var(--bg-paper-sunken)" }}>
+                    <strong>1. ALERT</strong>
+                    <div style={{ fontSize: "10px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+                      Ingestion signal or contamination alarm
+                    </div>
+                  </div>
+                  <div className="font-mono" style={{ fontSize: "11px", padding: "6px 8px", backgroundColor: "var(--bg-paper-sunken)" }}>
+                    <strong>2. EVIDENCE</strong>
+                    <div style={{ fontSize: "10px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+                      Lab tests, swab telemetry &amp; sensor audits
+                    </div>
+                  </div>
+                  <div className="font-mono" style={{ fontSize: "11px", padding: "6px 8px", backgroundColor: "var(--bg-paper-sunken)" }}>
+                    <strong>3. DECISION</strong>
+                    <div style={{ fontSize: "10px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+                      Automated Cypher gate policy verdicts
+                    </div>
+                  </div>
+                  <div className="font-mono" style={{ fontSize: "11px", padding: "6px 8px", backgroundColor: "var(--bg-paper-sunken)" }}>
+                    <strong>4. BATCH (UNIT)</strong>
+                    <div style={{ fontSize: "10px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+                      Inventory lots held or reaffirmed
+                    </div>
+                  </div>
+                  <div className="font-mono" style={{ fontSize: "11px", padding: "6px 8px", backgroundColor: "var(--bg-paper-sunken)" }}>
+                    <strong>5. SHIPMENT</strong>
+                    <div style={{ fontSize: "10px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+                      Transit vehicles &amp; container manifests
+                    </div>
+                  </div>
+                  <div className="font-mono" style={{ fontSize: "11px", padding: "6px 8px", backgroundColor: "var(--bg-paper-sunken)" }}>
+                    <strong>6. CUSTOMER</strong>
+                    <div style={{ fontSize: "10px", color: "var(--ink-secondary)", marginTop: "2px" }}>
+                      End recipients, clinics &amp; retail stores
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                /* Render Scalable SVG Force-Layout Canvas */
-                <svg
-                  width="100%"
-                  height="100%"
-                  viewBox="0 0 1180 640"
-                  preserveAspectRatio="xMidYMid meet"
+
+                {/* 3 Rubber Stamps */}
+                <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", fontSize: "11px" }} className="font-mono">
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className="forensic-stamp stamp-taint" style={{ fontSize: "8px", padding: "1px 6px" }}>HOLD</span>
+                    <span style={{ color: "var(--ink-secondary)" }}>Withheld from market; verified contaminated on causal path</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className="forensic-stamp stamp-reaffirm" style={{ fontSize: "8px", padding: "1px 6px" }}>REAFFIRMED</span>
+                    <span style={{ color: "var(--ink-secondary)" }}>Mathematically isolated &amp; cleared for distribution</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className="forensic-stamp stamp-suspect" style={{ fontSize: "8px", padding: "1px 6px" }}>SUSPECT</span>
+                    <span style={{ color: "var(--ink-secondary)" }}>Shared equipment lateral hop contact; audit pending</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Canvas Sub-Header Controls & Filter Chips (Requirements 1 & 3) */}
+          <div
+            className="border-neo-bottom"
+            style={{
+              padding: "6px 16px",
+              backgroundColor: "var(--bg-paper-elevated)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "8px",
+              flexShrink: 0,
+            }}
+          >
+            {/* Filter Chips */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <span className="mono-label" style={{ color: "var(--ink-secondary)", fontSize: "10px", marginRight: "4px" }}>
+                FILTER:
+              </span>
+              {[
+                { id: "all", label: `ALL (${nodes.length})` },
+                { id: "held", label: `HELD (${unitCounts.held})` },
+                { id: "reaffirmed", label: `REAFFIRMED (${unitCounts.reaffirmed})` },
+                { id: "escalated", label: `ESCALATED (${unitCounts.escalated})` },
+                { id: "suspect", label: `SUSPECT (${unitCounts.suspect})` },
+                { id: "lateral", label: "LATERAL PATH" },
+              ].map((chip) => (
+                <button
+                  key={chip.id}
+                  onClick={() => setActiveFilter(chip.id as FilterChip)}
+                  className={`font-mono border-neo touch-target-44 ${
+                    activeFilter === chip.id ? "shadow-neo-selected" : ""
+                  }`}
                   style={{
-                    width: "100%",
-                    height: "100%",
-                    maxHeight: "100%",
-                    maxWidth: "100%",
-                    display: "block",
+                    padding: "3px 10px",
+                    backgroundColor: activeFilter === chip.id ? "var(--ink-primary)" : "var(--bg-paper)",
+                    color: activeFilter === chip.id ? "var(--bg-paper)" : "var(--ink-primary)",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    cursor: "pointer",
                   }}
                 >
-                  <defs>
-                    <marker
-                      id="arrow-normal"
-                      viewBox="0 0 10 10"
-                      refX="18"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-muted)" />
-                    </marker>
-                    <marker
-                      id="arrow-taint"
-                      viewBox="0 0 10 10"
-                      refX="18"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--signal-taint)" />
-                    </marker>
-                  </defs>
+                  {chip.label}
+                </button>
+              ))}
 
-                  {/* Render Force Layout Edges */}
+              <button
+                onClick={() => setFocusOnSelection((prev) => !prev)}
+                className={`font-mono border-neo touch-target-44 ${focusOnSelection ? "shadow-neo-selected" : ""}`}
+                style={{
+                  padding: "3px 10px",
+                  marginLeft: "8px",
+                  backgroundColor: focusOnSelection ? "var(--ink-primary)" : "var(--bg-paper)",
+                  color: focusOnSelection ? "var(--bg-paper)" : "var(--ink-primary)",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Dims nodes and links outside the selected entity's causal path"
+              >
+                FOCUS ON SELECTION: {focusOnSelection ? "ON" : "OFF"}
+              </button>
+            </div>
+
+            {/* Viewport Zoom / Pan Controls (Requirement 1) */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button
+                onClick={() => {
+                  if (!document.fullscreenElement) {
+                    canvasContainerRef.current?.requestFullscreen?.().catch(() => {});
+                  } else {
+                    document.exitFullscreen?.().catch(() => {});
+                  }
+                }}
+                className="font-mono border-neo touch-target-44"
+                style={{
+                  padding: "3px 10px",
+                  backgroundColor: "var(--bg-paper)",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Fullscreen Evidence Canvas"
+              >
+                FULLSCREEN
+              </button>
+
+              <button
+                onClick={() => setZoom((z) => Math.min(Number((z * 1.2).toFixed(2)), 3.0))}
+                className="font-mono border-neo touch-target-44"
+                style={{
+                  padding: "3px 8px",
+                  backgroundColor: "var(--bg-paper)",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Zoom In"
+              >
+                +
+              </button>
+
+              <button
+                onClick={() => setZoom((z) => Math.max(Number((z / 1.2).toFixed(2)), 0.3))}
+                className="font-mono border-neo touch-target-44"
+                style={{
+                  padding: "3px 8px",
+                  backgroundColor: "var(--bg-paper)",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Zoom Out"
+              >
+                -
+              </button>
+
+              <button
+                onClick={() => {
+                  setZoom(1.0);
+                  setPan({ x: 0, y: 0 });
+                }}
+                className="font-mono border-neo touch-target-44"
+                style={{
+                  padding: "3px 10px",
+                  backgroundColor: "var(--bg-paper)",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Fit to View (100%)"
+              >
+                FIT VIEW ({Math.round(zoom * 100)}%)
+              </button>
+
+              <button
+                onClick={startPropagationAnimation}
+                className="font-mono border-neo touch-target-44"
+                style={{
+                  padding: "3px 10px",
+                  backgroundColor: "var(--bg-paper)",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Replay discrete hop-by-hop propagation animation"
+              >
+                REPLAY PROPAGATION
+              </button>
+
+              <button
+                onClick={() => setIsLedgerOpen((prev) => !prev)}
+                className="font-mono border-neo touch-target-44"
+                style={{
+                  padding: "3px 10px",
+                  backgroundColor: isLedgerOpen ? "var(--ink-primary)" : "var(--bg-paper)",
+                  color: isLedgerOpen ? "var(--bg-paper)" : "var(--ink-primary)",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Toggle Forensic Ledger &amp; Cypher Log Drawer (Hotkey: L)"
+              >
+                LEDGER [L]
+              </button>
+            </div>
+          </div>
+
+          {/* SVG Canvas Stage (Requirement 1 & 2) */}
+          <div
+            ref={canvasContainerRef}
+            className="border-neo"
+            onWheel={(e) => {
+              e.preventDefault();
+              const delta = e.deltaY < 0 ? 1.1 : 0.9;
+              setZoom((z) => Math.min(Math.max(Number((z * delta).toFixed(2)), 0.3), 3.0));
+            }}
+            onMouseDown={(e) => {
+              if (e.button === 0) {
+                setIsDragging(true);
+                dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+              }
+            }}
+            onMouseMove={(e) => {
+              if (isDragging) {
+                setPan({
+                  x: e.clientX - dragStartRef.current.x,
+                  y: e.clientY - dragStartRef.current.y,
+                });
+              }
+            }}
+            onMouseUp={() => setIsDragging(false)}
+            onMouseLeave={() => {
+              setIsDragging(false);
+              setHoveredNode(null);
+            }}
+            style={{
+              flex: 1,
+              minHeight: "75vh",
+              width: "100%",
+              height: "100%",
+              backgroundColor: "var(--bg-paper-sunken)",
+              position: "relative",
+              overflow: "hidden",
+              cursor: isDragging ? "grabbing" : "grab",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              userSelect: "none",
+            }}
+          >
+            {displayedNodes.length === 0 ? (
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "32px",
+                  textAlign: "center",
+                }}
+              >
+                <h2 className="font-display" style={{ fontSize: "22px", marginBottom: "8px" }}>
+                  Evidence Graph Awaiting Incident Signal
+                </h2>
+                <p className="font-body" style={{ color: "var(--ink-secondary)", maxWidth: "480px", marginBottom: "20px" }}>
+                  Launch an incident run to trace causal contamination, hold compromised batches, and reaffirm clean lots.
+                </p>
+                <button
+                  onClick={() => handleTriggerIncident(101)}
+                  className="shadow-neo-btn font-mono touch-target-44"
+                  style={{
+                    padding: "10px 24px",
+                    backgroundColor: "var(--ink-primary)",
+                    color: "var(--bg-paper)",
+                    border: "var(--border-neo)",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                  }}
+                >
+                  INVESTIGATE SEED 101
+                </button>
+              </div>
+            ) : (
+              <svg
+                width="100%"
+                height="100%"
+                viewBox={`0 0 ${totalCanvasWidth} ${totalCanvasHeight}`}
+                preserveAspectRatio="xMidYMid meet"
+                style={{ width: "100%", height: "100%", display: "block" }}
+              >
+                <defs>
+                  <marker
+                    id="arrow-normal"
+                    viewBox="0 0 10 10"
+                    refX="18"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-muted)" />
+                  </marker>
+                  <marker
+                    id="arrow-taint"
+                    viewBox="0 0 10 10"
+                    refX="18"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--signal-taint)" />
+                  </marker>
+                  <marker
+                    id="arrow-lateral"
+                    viewBox="0 0 10 10"
+                    refX="18"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--signal-suspect)" />
+                  </marker>
+                </defs>
+
+                <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+                  {/* Layer Role Column Header Guides */}
+                  {roleOrder.map((roleKey, c) => {
+                    const colX = startX + c * colSpacing;
+                    const isHopActive = animatingHop === c;
+                    return (
+                      <g key={`col-guide-${roleKey}-${c}`}>
+                        <line
+                          x1={colX}
+                          y1={20}
+                          x2={colX}
+                          y2={totalCanvasHeight - 20}
+                          stroke="var(--ink-border)"
+                          strokeDasharray="2,6"
+                          strokeWidth={isHopActive ? 2 : 1}
+                          opacity={isHopActive ? 0.8 : 0.3}
+                        />
+                        <rect
+                          x={colX - 55}
+                          y={24}
+                          width={110}
+                          height={22}
+                          fill={isHopActive ? "var(--ink-primary)" : "var(--bg-paper-elevated)"}
+                          stroke="var(--ink-border)"
+                          strokeWidth="1.5"
+                        />
+                        <text
+                          x={colX}
+                          y={39}
+                          textAnchor="middle"
+                          fill={isHopActive ? "var(--bg-paper)" : "var(--ink-secondary)"}
+                          fontSize="10"
+                          fontFamily="var(--font-mono)"
+                          fontWeight="700"
+                          letterSpacing="0.06em"
+                        >
+                          {roleKey.toUpperCase()}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Render Edges: Straight for causal hops, dashed curved arcs for lateral links */}
                   {displayedEdges.map((edge, idx) => {
                     const src = nodePositions[edge.source_id];
                     const dst = nodePositions[edge.target_id];
@@ -1214,7 +1685,17 @@ export default function ForensicDossier() {
                       highlightedEntitySet.has(edge.target_id);
 
                     const isTaint = edge.is_taint;
-                    const isLateral = edge.is_lateral;
+                    const isLateral =
+                      edge.is_lateral ||
+                      edge.kind === "LATERAL_LINK" ||
+                      edge.kind === "SHARED_LOT";
+
+                    // Focus on Selection Dimming (Requirement 3)
+                    const isFocusDimmed =
+                      focusOnSelection &&
+                      selectedEntityId &&
+                      !(connectedSelectionIds.has(edge.source_id) && connectedSelectionIds.has(edge.target_id));
+
                     const strokeColor = isHighlighted
                       ? "var(--ink-primary)"
                       : isTaint
@@ -1222,14 +1703,53 @@ export default function ForensicDossier() {
                       : isLateral
                       ? "var(--signal-suspect)"
                       : "var(--ink-border)";
-                    const strokeDash = isTaint ? "5,4" : isLateral ? "4,4" : "none";
+
+                    const strokeDash = isLateral ? "5,4" : isTaint ? "5,4" : "none";
                     const strokeWidth = isHighlighted ? 3.5 : isTaint || isLateral ? 2.5 : 1.5;
 
+                    if (isLateral) {
+                      // Dashed Arc for Lateral links (Requirement 2)
+                      const midX = (src.x + dst.x) / 2;
+                      const midY = (src.y + dst.y) / 2 - 36;
+                      const arcD = `M ${src.x} ${src.y} Q ${midX} ${midY} ${dst.x} ${dst.y}`;
+
+                      return (
+                        <g
+                          key={`lateral-${edge.source_id}-${edge.target_id}-${idx}`}
+                          opacity={isFocusDimmed ? 0.12 : 1}
+                        >
+                          <path
+                            d={arcD}
+                            fill="none"
+                            stroke={strokeColor}
+                            strokeWidth={strokeWidth}
+                            strokeDasharray="5,4"
+                            markerEnd="url(#arrow-lateral)"
+                          />
+                          <text
+                            x={midX}
+                            y={midY - 6}
+                            fill="var(--signal-suspect)"
+                            fontSize="9"
+                            fontFamily="var(--font-mono)"
+                            textAnchor="middle"
+                            fontWeight="700"
+                          >
+                            LATERAL ARC
+                          </text>
+                        </g>
+                      );
+                    }
+
+                    // Standard direct causal edge
                     const mx = (src.x + dst.x) / 2;
                     const my = (src.y + dst.y) / 2;
 
                     return (
-                      <g key={`edge-${edge.source_id}-${edge.target_id}-${idx}`}>
+                      <g
+                        key={`edge-${edge.source_id}-${edge.target_id}-${idx}`}
+                        opacity={isFocusDimmed ? 0.12 : 1}
+                      >
                         <line
                           x1={src.x}
                           y1={src.y}
@@ -1240,23 +1760,10 @@ export default function ForensicDossier() {
                           strokeDasharray={strokeDash}
                           markerEnd={isTaint ? "url(#arrow-taint)" : "url(#arrow-normal)"}
                         />
-                        {isLateral && (
-                          <text
-                            x={mx}
-                            y={my - 6}
-                            fill="var(--signal-suspect)"
-                            fontSize="9"
-                            fontFamily="var(--font-mono)"
-                            textAnchor="middle"
-                            fontWeight="700"
-                          >
-                            LATERAL HOP
-                          </text>
-                        )}
                         {edge.hops !== undefined && edge.hops !== null && (
                           <text
                             x={mx}
-                            y={my + 10}
+                            y={my - 6}
                             fill="var(--signal-taint)"
                             fontSize="8"
                             fontFamily="var(--font-mono)"
@@ -1270,7 +1777,7 @@ export default function ForensicDossier() {
                     );
                   })}
 
-                  {/* Render Force Layout Nodes */}
+                  {/* Render Nodes: strict non-overlapping slots, decluttered ID suffix + 1 label */}
                   {displayedNodes.map((node) => {
                     const pos = nodePositions[node.id];
                     if (!pos) return null;
@@ -1278,14 +1785,30 @@ export default function ForensicDossier() {
                     const isSelected = selectedEntityId === node.id;
                     const isWhyPath = highlightedEntitySet.has(node.id);
 
+                    // Focus Dimming
+                    const isFocusDimmed =
+                      focusOnSelection &&
+                      selectedEntityId &&
+                      !connectedSelectionIds.has(node.id);
+
+                    // Stamps appear ONLY on units and decisions (Requirement 3)
+                    const nodeRoleLower = (node.role || "").toLowerCase();
+                    const canHaveStamp =
+                      (nodeRoleLower === "unit" || nodeRoleLower === "decision") &&
+                      Boolean(node.stamp_text);
+
+                    // Color Tokens & Propagation Reaffirmed Green Transition (Requirement 4)
                     let strokeColor = "var(--ink-border)";
                     let fillColor = "var(--bg-paper)";
 
-                    if (node.ink_token === "tainted") {
+                    if (node.ink_token === "tainted" || node.status === "tainted" || node.properties?.is_tainted) {
                       strokeColor = "var(--signal-taint)";
-                    } else if (node.ink_token === "reaffirmed") {
+                    } else if (
+                      (node.ink_token === "reaffirmed" || node.status === "reaffirmed") &&
+                      reaffirmedGreenActive
+                    ) {
                       strokeColor = "var(--signal-reaffirm)";
-                    } else if (node.ink_token === "suspect") {
+                    } else if (node.ink_token === "suspect" || node.status === "suspect" || node.properties?.is_suspect) {
                       strokeColor = "var(--signal-suspect)";
                     }
 
@@ -1293,11 +1816,23 @@ export default function ForensicDossier() {
                       fillColor = "var(--bg-paper-elevated)";
                     }
 
+                    // Declutter: ID Suffix & 1 short label (Requirement 3)
+                    const idSuffix = getShortSuffix(node.id);
+                    const shortLabel = node.badge || node.kind || node.role;
+
                     return (
                       <g
                         key={`node-${node.id}`}
                         transform={`translate(${pos.x}, ${pos.y})`}
                         onClick={() => handleOpenWhy(node.id)}
+                        onMouseEnter={(e) => {
+                          setHoveredNode(node);
+                          setHoverPos({ x: e.clientX, y: e.clientY });
+                        }}
+                        onMouseMove={(e) => {
+                          setHoverPos({ x: e.clientX, y: e.clientY });
+                        }}
+                        onMouseLeave={() => setHoveredNode(null)}
                         tabIndex={0}
                         role="button"
                         aria-label={`Inspect ${node.kind} ${node.id}`}
@@ -1306,71 +1841,77 @@ export default function ForensicDossier() {
                             handleOpenWhy(node.id);
                           }
                         }}
+                        opacity={isFocusDimmed ? 0.2 : 1}
                         style={{ cursor: "pointer", outline: "none" }}
                       >
-                        {/* Vector Hard Offset Shadow for Interactive/Selected (Zero Blur) */}
+                        {/* Neobrutalist Hard Offset Vector Shadow (Selected / Causal Path) */}
                         {(isSelected || isWhyPath) && (
                           <rect
                             x="-37"
-                            y="-21"
+                            y="-20"
                             width="80"
                             height="46"
                             fill="var(--ink-primary)"
                           />
                         )}
 
-                        {/* Node Card Box (Strict Neobrutal Square Corners) */}
+                        {/* Node Card Box (Guaranteed non-overlapping 80x46 card) */}
                         <rect
                           x="-40"
-                          y="-24"
+                          y="-23"
                           width="80"
                           height="46"
                           fill={fillColor}
                           stroke={isWhyPath ? "var(--ink-primary)" : strokeColor}
                           strokeWidth={isSelected || isWhyPath ? 3 : 2}
+                          className={
+                            node.status === "reaffirmed" && reaffirmedGreenActive
+                              ? "reaffirmed-glow"
+                              : ""
+                          }
                         />
 
-                        {/* Node Badge */}
+                        {/* One Short Label (Declutter - Requirement 3) */}
                         <text
                           x="-32"
-                          y="-10"
+                          y="-9"
                           fill="var(--ink-muted)"
                           fontSize="9"
                           fontFamily="var(--font-mono)"
                           fontWeight="700"
                         >
-                          {node.badge}
+                          {shortLabel.length > 10 ? `${shortLabel.slice(0, 9)}…` : shortLabel}
                         </text>
 
-                        {/* Entity ID Label */}
+                        {/* ID Suffix Only by Default (Declutter - Requirement 3) */}
                         <text
                           x="0"
-                          y="6"
+                          y="8"
                           fill="var(--ink-primary)"
                           fontSize="10"
                           fontFamily="var(--font-mono)"
                           textAnchor="middle"
-                          fontWeight="600"
+                          fontWeight="700"
                         >
-                          {node.id.length > 11 ? `${node.id.slice(0, 10)}…` : node.id}
+                          {idSuffix}
                         </text>
 
-                        {/* Neobrutalist Stamp Tag */}
-                        {node.stamp_text && (
-                          <g transform="translate(0, 30)">
+                        {/* Stamps strictly on Units and Decisions only (Requirement 3) */}
+                        {canHaveStamp && (
+                          <g transform="translate(0, 31)">
                             {(isSelected || isWhyPath) && (
                               <rect
-                                x="-33"
+                                x="-32"
                                 y="-7"
-                                width="68"
+                                width="66"
                                 height="18"
                                 fill="var(--ink-primary)"
                               />
                             )}
                             <rect
-                              x="-35"
+                              x="-34"
                               y="-9"
-                              width="68"
+                              width="66"
                               height="18"
                               fill="var(--bg-paper)"
                               stroke={strokeColor}
@@ -1393,174 +1934,305 @@ export default function ForensicDossier() {
                       </g>
                     );
                   })}
-                </svg>
-              )}
+                </g>
+              </svg>
+            )}
 
-              {/* Neo-brutalist Legend Strip */}
+            {/* Hover Tooltip (Full Detail on Hover - Requirement 3) */}
+            {hoveredNode && hoverPos && (
               <div
                 className="border-neo font-mono"
                 style={{
-                  position: "absolute",
-                  bottom: "12px",
-                  left: "16px",
-                  display: "flex",
-                  gap: "14px",
-                  backgroundColor: "var(--bg-paper)",
-                  padding: "6px 12px",
+                  position: "fixed",
+                  left: Math.min(hoverPos.x + 14, (typeof window !== "undefined" ? window.innerWidth : 1440) - 300),
+                  top: Math.min(hoverPos.y + 14, (typeof window !== "undefined" ? window.innerHeight : 900) - 180),
+                  zIndex: 1500,
+                  backgroundColor: "var(--bg-paper-elevated)",
+                  padding: "10px 14px",
                   fontSize: "11px",
-                  fontWeight: 600,
-                  boxShadow: "var(--shadow-interactive)",
+                  maxWidth: "290px",
+                  boxShadow: "var(--shadow-interactive-lg)",
+                  pointerEvents: "none",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ color: "var(--signal-suspect)" }}>■</span> SUSPECT
+                <div style={{ fontWeight: 700, color: "var(--ink-primary)", marginBottom: "4px" }}>
+                  {hoveredNode.id}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ color: "var(--signal-taint)" }}>■</span> HOLD
+                <div style={{ color: "var(--ink-secondary)", marginBottom: "2px" }}>
+                  ROLE: <strong>{hoveredNode.role}</strong> · KIND: <strong>{hoveredNode.kind}</strong>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ color: "var(--signal-reaffirm)" }}>■</span> REAFFIRMED
+                <div style={{ color: "var(--ink-secondary)", marginBottom: "2px" }}>
+                  STATUS:{" "}
+                  <strong
+                    style={{
+                      color:
+                        hoveredNode.ink_token === "tainted"
+                          ? "var(--signal-taint)"
+                          : hoveredNode.ink_token === "reaffirmed"
+                          ? "var(--signal-reaffirm)"
+                          : "var(--ink-primary)",
+                    }}
+                  >
+                    {hoveredNode.status || "active"}
+                  </strong>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ color: "var(--ink-secondary)" }}>- - -</span> LATERAL HOP
+                {hoveredNode.stamp_text && (
+                  <div style={{ marginTop: "4px" }}>
+                    STAMP:{" "}
+                    <span className="forensic-stamp stamp-taint" style={{ fontSize: "8px", padding: "1px 6px" }}>
+                      {hoveredNode.stamp_text}
+                    </span>
+                  </div>
+                )}
+                <div style={{ fontSize: "10px", color: "var(--ink-muted)", marginTop: "6px" }}>
+                  Click to inspect causal chain of custody
                 </div>
               </div>
-            </div>
-          </section>
+            )}
+          </div>
 
-          {/* Right Column: ~38% Ledger & Query Log */}
-          <aside
-            style={{
-              backgroundColor: "var(--bg-paper-elevated)",
-              display: "flex",
-              flexDirection: "column",
-              minWidth: 0,
-              minHeight: 0,
-              height: "100%",
-              overflow: "hidden",
-            }}
-          >
-            {/* Running Ledger Section */}
-            <div
-              className="border-neo-bottom"
+          {/* Collapsible Right Drawer for Ledger & Cypher Log (Requirements 1 & 6) */}
+          {isLedgerOpen && (
+            <aside
+              role="dialog"
+              aria-label="Forensic Ledger and Cypher Log Drawer"
               style={{
-                flex: 1,
-                minHeight: 0,
-                padding: "16px",
-                overflowY: "auto",
+                position: "fixed",
+                top: 0,
+                right: 0,
+                width: "480px",
+                maxWidth: "100vw",
+                height: "100vh",
+                backgroundColor: "var(--bg-paper)",
+                borderLeft: "var(--border-neo-thick)",
+                boxShadow: "var(--shadow-interactive-lg)",
+                display: "flex",
+                flexDirection: "column",
+                zIndex: 1100,
+                overflow: "hidden",
               }}
             >
+              {/* Drawer Navigation Bar */}
               <div
-                className="mono-label"
+                className="border-neo-bottom"
                 style={{
-                  marginBottom: "12px",
-                  color: "var(--ink-secondary)",
+                  padding: "12px 16px",
+                  backgroundColor: "var(--bg-paper-elevated)",
                   display: "flex",
                   justifyContent: "space-between",
+                  alignItems: "center",
+                  flexShrink: 0,
                 }}
               >
-                <span>{registry?.vocabulary?.ledger_heading || "Running Forensic Ledger"}</span>
-                <span style={{ color: "var(--ink-muted)" }}>{events.length} EVENTS</span>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    onClick={() => setDrawerTab("ledger")}
+                    className={`font-mono border-neo touch-target-44 ${
+                      drawerTab === "ledger" ? "shadow-neo-selected" : ""
+                    }`}
+                    style={{
+                      padding: "4px 12px",
+                      backgroundColor: drawerTab === "ledger" ? "var(--ink-primary)" : "var(--bg-paper)",
+                      color: drawerTab === "ledger" ? "var(--bg-paper)" : "var(--ink-primary)",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    LEDGER ({visibleEvents.length})
+                  </button>
+                  <button
+                    onClick={() => setDrawerTab("queries")}
+                    className={`font-mono border-neo touch-target-44 ${
+                      drawerTab === "queries" ? "shadow-neo-selected" : ""
+                    }`}
+                    style={{
+                      padding: "4px 12px",
+                      backgroundColor: drawerTab === "queries" ? "var(--ink-primary)" : "var(--bg-paper)",
+                      color: drawerTab === "queries" ? "var(--bg-paper)" : "var(--ink-primary)",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    CYPHER LOG ({queryLog.length})
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setIsLedgerOpen(false)}
+                  className="font-mono border-neo touch-target-44"
+                  style={{
+                    padding: "4px 12px",
+                    backgroundColor: "var(--bg-paper)",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                  title="Close Drawer (ESC / L)"
+                >
+                  CLOSE [ESC]
+                </button>
               </div>
 
-              {events.length === 0 ? (
+              {/* Tab 1: Ledger Events Grouped by Phase (Requirement 6) */}
+              {drawerTab === "ledger" && (
                 <div
-                  className="border-neo font-mono"
                   style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: "auto",
                     padding: "16px",
-                    fontSize: "12px",
-                    color: "var(--ink-secondary)",
-                    backgroundColor: "var(--bg-paper)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
                   }}
                 >
-                  No events logged on current incident run. Click &quot;INVESTIGATE RECALL&quot; to begin.
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {events.map((evt, idx) => {
-                    let stampClass = "stamp-neutral";
-                    if (evt.event_type.includes("taint")) stampClass = "stamp-taint";
-                    else if (evt.event_type.includes("suspect")) stampClass = "stamp-suspect";
-                    else if (evt.event_type.includes("verdict")) stampClass = "stamp-reaffirm";
+                  {/* Noise Filter Toggle */}
+                  <div
+                    className="border-neo font-mono"
+                    style={{
+                      padding: "8px 12px",
+                      backgroundColor: "var(--bg-paper-sunken)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: "11px",
+                    }}
+                  >
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={showAllEvents}
+                        onChange={(e) => setShowAllEvents(e.target.checked)}
+                      />
+                      <span>Show all events (include status heartbeats)</span>
+                    </label>
+                    <span style={{ color: "var(--ink-muted)" }}>
+                      {visibleEvents.length} of {events.length} shown
+                    </span>
+                  </div>
 
-                    return (
+                  {groupedPhases.length === 0 ? (
+                    <div
+                      className="font-mono"
+                      style={{
+                        fontSize: "12px",
+                        color: "var(--ink-secondary)",
+                        padding: "24px",
+                        textAlign: "center",
+                      }}
+                    >
+                      No incident events recorded yet. Click &quot;INVESTIGATE RECALL&quot; to begin.
+                    </div>
+                  ) : (
+                    groupedPhases.map((phase) => (
                       <div
-                        key={`evt-card-${evt.event_id}-${idx}`}
+                        key={phase.id}
                         className="border-neo"
-                        style={{
-                          padding: "10px 14px",
-                          backgroundColor: "var(--bg-paper)",
-                          fontSize: "12px",
-                        }}
+                        style={{ backgroundColor: "var(--bg-paper-elevated)" }}
                       >
                         <div
+                          className="border-neo-bottom font-mono"
                           style={{
+                            padding: "8px 12px",
+                            backgroundColor: "var(--bg-paper-sunken)",
+                            fontSize: "11px",
+                            fontWeight: 700,
                             display: "flex",
                             justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: "4px",
                           }}
                         >
+                          <span>{phase.name}</span>
                           <span
-                            className="font-mono"
-                            style={{ color: "var(--ink-primary)", fontWeight: 700 }}
+                            className="forensic-stamp stamp-neutral"
+                            style={{ fontSize: "8px", padding: "1px 6px" }}
                           >
-                            {evt.event_type}
-                          </span>
-                          <span className={`forensic-stamp ${stampClass}`} style={{ fontSize: "9px" }}>
-                            {evt.event_type.split(".")[1]?.toUpperCase() || "LOG"}
+                            {phase.events.length} EVENTS
                           </span>
                         </div>
-                        <div
-                          className="font-mono"
-                          style={{ fontSize: "11px", color: "var(--ink-secondary)" }}
-                        >
-                          Entities: {evt.entity_ids?.join(", ") || "none"}
+                        <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                          {phase.events.map((evt, idx) => {
+                            let stampClass = "stamp-neutral";
+                            if (evt.event_type.includes("taint")) stampClass = "stamp-taint";
+                            else if (evt.event_type.includes("suspect")) stampClass = "stamp-suspect";
+                            else if (evt.event_type.includes("verdict")) stampClass = "stamp-reaffirm";
+
+                            return (
+                              <div
+                                key={`evt-drawer-${evt.event_id}-${idx}`}
+                                className="border-neo"
+                                style={{
+                                  padding: "8px 10px",
+                                  backgroundColor: "var(--bg-paper)",
+                                  fontSize: "11px",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    marginBottom: "3px",
+                                  }}
+                                >
+                                  <span className="font-mono" style={{ fontWeight: 700 }}>
+                                    {evt.event_type}
+                                  </span>
+                                  <span
+                                    className={`forensic-stamp ${stampClass}`}
+                                    style={{ fontSize: "8px", padding: "1px 5px" }}
+                                  >
+                                    {evt.event_type.split(".")[1]?.toUpperCase() || "LOG"}
+                                  </span>
+                                </div>
+                                <div
+                                  className="font-mono"
+                                  style={{ fontSize: "10px", color: "var(--ink-secondary)" }}
+                                >
+                                  Entities: {evt.entity_ids?.join(", ") || "none"}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-                    );
-                  })}
+                    ))
+                  )}
                 </div>
               )}
-            </div>
 
-            {/* Audit Cypher Query Log Section */}
-            <div
-              style={{
-                padding: "14px 16px",
-                backgroundColor: "var(--bg-paper-sunken)",
-                height: "170px",
-                maxHeight: "170px",
-                flexShrink: 0,
-                overflowY: "auto",
-              }}
-            >
-              <div
-                className="mono-label border-neo-bottom"
-                style={{
-                  paddingBottom: "6px",
-                  marginBottom: "8px",
-                  color: "var(--ink-secondary)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                }}
-              >
-                <span>{registry?.vocabulary?.query_log_heading || "Graph Audit Cypher Log"}</span>
-                <span style={{ color: "var(--ink-muted)" }}>LIVE QUERY STREAM</span>
-              </div>
-              <pre
-                className="font-mono"
-                style={{
-                  fontSize: "11px",
-                  color: "var(--ink-secondary)",
-                  whiteSpace: "pre-wrap",
-                  lineHeight: "1.45",
-                }}
-              >
-                {queryLog.join("\n")}
-              </pre>
-            </div>
-          </aside>
+              {/* Tab 2: Cypher Query Stream */}
+              {drawerTab === "queries" && (
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: "auto",
+                    padding: "16px",
+                    backgroundColor: "var(--bg-paper-sunken)",
+                  }}
+                >
+                  <div
+                    className="mono-label"
+                    style={{ marginBottom: "8px", color: "var(--ink-secondary)" }}
+                  >
+                    FalkorDB Executed Cypher Audit Queries ({queryLog.length})
+                  </div>
+                  <pre
+                    className="font-mono"
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--ink-secondary)",
+                      whiteSpace: "pre-wrap",
+                      lineHeight: "1.45",
+                    }}
+                  >
+                    {queryLog.join("\n\n")}
+                  </pre>
+                </div>
+              )}
+            </aside>
+          )}
         </main>
       )}
 
@@ -1737,7 +2409,7 @@ export default function ForensicDossier() {
                 className="font-body"
                 style={{ fontSize: "14px", color: "var(--ink-secondary)", marginTop: "2px" }}
               >
-                Automated precision vs blanket recall verification harness across randomized incidents (Part A Phase A4).
+                Automated share recalled vs blanket recall verification harness across randomized incidents.
               </p>
             </div>
             <button
@@ -1771,7 +2443,7 @@ export default function ForensicDossier() {
                   style={{ padding: "16px", backgroundColor: "var(--bg-paper-elevated)" }}
                 >
                   <div className="mono-label" style={{ color: "var(--ink-secondary)" }}>
-                    Precision vs Blanket Recall
+                    Share Recalled vs Blanket Recall
                   </div>
                   <div
                     className="font-mono"
@@ -1783,7 +2455,7 @@ export default function ForensicDossier() {
                     className="font-body"
                     style={{ fontSize: "12px", color: "var(--ink-secondary)", marginTop: "4px" }}
                   >
-                    Targeted causal containment vs blanket recall
+                    Targeted causal containment vs blanket recall (lower is better: smaller share of supply chain halted while preserving 100% causal precision)
                   </div>
                 </div>
 
@@ -1915,7 +2587,7 @@ export default function ForensicDossier() {
             Cypher Tool Gate Evaluator
           </h2>
           <p className="font-body" style={{ fontSize: "14px", color: "var(--ink-secondary)", marginBottom: "20px" }}>
-            Proves Section 0 Rule 5 &amp; Winning Expectation: &quot;A hold on an untainted batch is impossible
+            Guaranteed policy enforcement: &quot;A hold on an untainted batch is impossible
             because the tool is absent!&quot; Gates are evaluated directly against FalkorDB graph state.
           </p>
 
@@ -2076,7 +2748,7 @@ export default function ForensicDossier() {
           >
             <div>
               <div className="mono-label" style={{ color: "var(--ink-secondary)" }}>
-                Chain of Custody Inspector · Rule 7
+                Forensic Trajectory Inspection
               </div>
               <h3 className="font-display" style={{ fontSize: "20px", fontWeight: 700 }}>
                 {registry?.vocabulary?.why_heading || "Causal Chain of Custody"}
@@ -2262,8 +2934,8 @@ export default function ForensicDossier() {
             TIME TO SCOPE: <strong style={{ color: "var(--ink-primary)" }}>{timeToScopeMs} ms</strong>
           </div>
           <div>
-            NODES: <strong style={{ color: "var(--ink-primary)" }}>{stats?.total_nodes ?? 0}</strong> · EDGES:{" "}
-            <strong style={{ color: "var(--ink-primary)" }}>{stats?.total_edges ?? 0}</strong>
+            NODES: <strong style={{ color: "var(--ink-primary)" }}>{nodes.length || stats?.total_nodes || 0}</strong> · EDGES:{" "}
+            <strong style={{ color: "var(--ink-primary)" }}>{edges.length || stats?.total_edges || 0}</strong>
           </div>
         </div>
       </footer>
