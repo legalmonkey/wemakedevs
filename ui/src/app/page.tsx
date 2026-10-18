@@ -154,7 +154,7 @@ export default function ForensicDossier() {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [stats, setStats] = useState<GraphStats | null>(null);
-  const [activeSeed, setActiveSeed] = useState<number>(101);
+  const [activeSeed, setActiveSeed] = useState<number | null>(101);
   const [isTriggering, setIsTriggering] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("System standing by on active tenant graph. All nodes verified by policy.");
   const [timeToScopeMs, setTimeToScopeMs] = useState<number>(3.4);
@@ -176,6 +176,7 @@ export default function ForensicDossier() {
   const hasMovedRef = useRef<boolean>(false);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const [isCanvasExpanded, setIsCanvasExpanded] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const hasAutoFittedRef = useRef<boolean>(false);
 
   // Collapsible Right Drawer for Ledger & Cypher Log (Requirement 1 & 6)
@@ -224,7 +225,8 @@ export default function ForensicDossier() {
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // Keyboard shortcut listener (L toggles ledger, ESC closes drawers)
+
+  // Keyboard shortcut listener (L toggles ledger, ESC closes drawers/fullscreen)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const targetTag = (e.target as HTMLElement)?.tagName;
@@ -233,6 +235,9 @@ export default function ForensicDossier() {
       if (e.key === "l" || e.key === "L") {
         setIsLedgerOpen((prev) => !prev);
       } else if (e.key === "Escape") {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+        }
         if (whyDrawerOpen) setWhyDrawerOpen(false);
         if (isLedgerOpen) setIsLedgerOpen(false);
       }
@@ -403,12 +408,13 @@ export default function ForensicDossier() {
   }, []);
 
   // Trigger live multi-agent incident run
-  const handleTriggerIncident = async (seedToRun: number) => {
+  const handleTriggerIncident = async (seedToRun?: number | null) => {
+    const targetSeed = seedToRun || 101;
     setIsTriggering(true);
     setStreamState("tracing...");
-    setActiveSeed(seedToRun);
+    setActiveSeed(targetSeed);
     setEvents([]);
-    setStatusMessage(`Triggering multi-agent trace on Seed ${seedToRun}...`);
+    setStatusMessage(`Triggering multi-agent trace on Seed ${targetSeed}...`);
     runStartTimeRef.current = performance.now();
     hasAutoFittedRef.current = false;
 
@@ -417,7 +423,7 @@ export default function ForensicDossier() {
       const res = await fetch(`${API_BASE}/api/incident/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seed: seedToRun, speed_ms: speed }),
+        body: JSON.stringify({ seed: targetSeed, speed_ms: speed }),
       });
       if (res.ok) {
         setAgentStatus("ACTIVE");
@@ -428,7 +434,7 @@ export default function ForensicDossier() {
           if (wallElapsed > 0) {
             setWallClockMs(wallElapsed);
           }
-          setStatusMessage(`Incident containment trace complete on Seed ${seedToRun}. All causal paths verified by Cypher gates.`);
+          setStatusMessage(`Incident containment trace complete on Seed ${targetSeed}. All causal paths verified by Cypher gates.`);
           setStreamState("complete");
           startPropagationAnimation();
         }, 600);
@@ -440,6 +446,19 @@ export default function ForensicDossier() {
       setTimeout(() => setIsTriggering(false), 1200);
     }
   };
+
+  // Clear active seed and reset canvas to clean standby
+  const handleClearSeed = useCallback(() => {
+    setActiveSeed(null);
+    setNodes([]);
+    setEdges([]);
+    setStats(null);
+    setEvents([]);
+    setSelectedEntityId(null);
+    setWhyData(null);
+    setStatusMessage("System standing by in clean state. No incident seed selected.");
+    setStreamState("complete");
+  }, []);
 
   // Inspect Why Chain of Custody for an action or node (Rule 7, <= 2 interactions)
   const handleOpenWhy = async (entityId: string) => {
@@ -993,6 +1012,17 @@ export default function ForensicDossier() {
     }
   }, [displayedNodes.length, fitView]);
 
+  // Listen for native fullscreen changes to keep UI state in sync
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFs = Boolean(document.fullscreenElement);
+      setIsFullscreen(isFs);
+      setTimeout(fitView, 120);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [fitView]);
+
   // Direct 1:1 Canvas Drag and Wheel Zoom Handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
@@ -1163,7 +1193,7 @@ export default function ForensicDossier() {
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <button
             id="btn-investigate"
-            onClick={() => handleTriggerIncident(activeSeed)}
+            onClick={() => handleTriggerIncident(activeSeed || 101)}
             disabled={isTriggering}
             className="shadow-neo-btn font-mono touch-target-44"
             style={{
@@ -1186,27 +1216,59 @@ export default function ForensicDossier() {
             SEEDS:
           </span>
 
-          {[101, 202, 303, 4812, 31337].map((seed) => (
-            <button
-              key={seed}
-              onClick={() => handleTriggerIncident(seed)}
-              disabled={isTriggering}
-              className={`font-mono border-neo touch-target-44 ${
-                activeSeed === seed ? "shadow-neo-selected" : ""
-              }`}
-              style={{
-                padding: "6px 14px",
-                backgroundColor:
-                  activeSeed === seed ? "var(--bg-paper)" : "var(--bg-paper-elevated)",
-                fontWeight: activeSeed === seed ? 700 : 500,
-                color: "var(--ink-primary)",
-                cursor: "pointer",
-                fontSize: "12px",
-              }}
-            >
-              Seed {seed}
-            </button>
-          ))}
+          <button
+            id="btn-seed-none"
+            onClick={handleClearSeed}
+            disabled={isTriggering}
+            className={`font-mono border-neo touch-target-44 ${
+              activeSeed === null ? "shadow-neo-selected" : ""
+            }`}
+            style={{
+              padding: "6px 14px",
+              backgroundColor:
+                activeSeed === null ? "var(--ink-primary)" : "var(--bg-paper-elevated)",
+              fontWeight: activeSeed === null ? 700 : 500,
+              color: activeSeed === null ? "var(--bg-paper)" : "var(--ink-primary)",
+              cursor: "pointer",
+              fontSize: "12px",
+            }}
+            title="Deselect active seed and reset canvas to clean standby state"
+          >
+            None
+          </button>
+
+          {[101, 202, 303, 4812, 31337].map((seed) => {
+            const isSelected = activeSeed === seed;
+            return (
+              <button
+                key={seed}
+                id={`btn-seed-${seed}`}
+                onClick={() => {
+                  if (isSelected) {
+                    handleClearSeed();
+                  } else {
+                    handleTriggerIncident(seed);
+                  }
+                }}
+                disabled={isTriggering}
+                className={`font-mono border-neo touch-target-44 ${
+                  isSelected ? "shadow-neo-selected" : ""
+                }`}
+                style={{
+                  padding: "6px 14px",
+                  backgroundColor:
+                    isSelected ? "var(--ink-primary)" : "var(--bg-paper-elevated)",
+                  fontWeight: isSelected ? 700 : 500,
+                  color: isSelected ? "var(--bg-paper)" : "var(--ink-primary)",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                }}
+                title={isSelected ? `Click to deselect Seed ${seed} (set to None)` : `Investigate Seed ${seed}`}
+              >
+                Seed {seed}
+              </button>
+            );
+          })}
 
           <button
             onClick={() => handleTriggerIncident(Math.floor(Math.random() * 899) + 100)}
@@ -1775,6 +1837,7 @@ export default function ForensicDossier() {
               </button>
 
               <button
+                id="btn-toggle-fullscreen"
                 onClick={() => {
                   if (!document.fullscreenElement) {
                     canvasContainerRef.current?.requestFullscreen?.().catch(() => {});
@@ -1784,17 +1847,18 @@ export default function ForensicDossier() {
                     setTimeout(fitView, 120);
                   }
                 }}
-                className="font-mono border-neo touch-target-44"
+                className={`font-mono border-neo touch-target-44 ${isFullscreen ? "shadow-neo-selected" : ""}`}
                 style={{
                   padding: "3px 10px",
-                  backgroundColor: "var(--bg-paper)",
+                  backgroundColor: isFullscreen ? "var(--accent-crimson)" : "var(--bg-paper)",
+                  color: isFullscreen ? "#ffffff" : "var(--ink-primary)",
                   fontSize: "10px",
                   fontWeight: 700,
                   cursor: "pointer",
                 }}
-                title="Fullscreen Evidence Canvas"
+                title="Toggle Fullscreen Evidence Canvas (Hotkey: ESC to exit)"
               >
-                FULLSCREEN
+                {isFullscreen ? "✕ EXIT FULLSCREEN [ESC]" : "FULLSCREEN"}
               </button>
 
               <button
@@ -1900,6 +1964,89 @@ export default function ForensicDossier() {
               touchAction: "none",
             }}
           >
+            {/* Native Fullscreen In-Canvas Floating Toolbar & Exit Button */}
+            {isFullscreen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "12px",
+                  right: "16px",
+                  zIndex: 200,
+                  display: "flex",
+                  gap: "6px",
+                  alignItems: "center",
+                }}
+              >
+                <button
+                  onClick={fitView}
+                  className="font-mono border-neo shadow-neo-btn"
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: "var(--bg-paper)",
+                    color: "var(--ink-primary)",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                  title="Fit graph to canvas"
+                >
+                  FIT VIEW
+                </button>
+                <button
+                  onClick={() => zoomBy(1.2)}
+                  className="font-mono border-neo shadow-neo-btn"
+                  style={{
+                    padding: "6px 10px",
+                    backgroundColor: "var(--bg-paper)",
+                    color: "var(--ink-primary)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                  title="Zoom In"
+                >
+                  +
+                </button>
+                <button
+                  onClick={() => zoomBy(1 / 1.2)}
+                  className="font-mono border-neo shadow-neo-btn"
+                  style={{
+                    padding: "6px 10px",
+                    backgroundColor: "var(--bg-paper)",
+                    color: "var(--ink-primary)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                  title="Zoom Out"
+                >
+                  -
+                </button>
+                <button
+                  id="btn-exit-canvas-fullscreen"
+                  onClick={() => {
+                    if (document.fullscreenElement) {
+                      document.exitFullscreen?.().catch(() => {});
+                    }
+                  }}
+                  className="font-mono border-neo shadow-neo-btn"
+                  style={{
+                    padding: "6px 14px",
+                    backgroundColor: "var(--accent-crimson)",
+                    color: "#ffffff",
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    letterSpacing: "0.04em",
+                    boxShadow: "2px 2px 0px #000000",
+                  }}
+                  title="Exit Fullscreen (or press Escape)"
+                >
+                  ✕ EXIT FULLSCREEN [ESC]
+                </button>
+              </div>
+            )}
+
             {/* Visible Mobile Touch Pan/Zoom Hint Banner (Requirement 6) */}
             <div
               className="font-mono border-neo"
