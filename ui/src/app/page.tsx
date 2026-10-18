@@ -164,12 +164,19 @@ export default function ForensicDossier() {
   const [noPacing, setNoPacing] = useState<boolean>(false);
 
   // Canvas Viewport & Navigation Controls (Requirement 1)
-  const [zoom, setZoom] = useState<number>(1.0);
+  const [zoom, setZoom] = useState<number>(0.85);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const touchDistanceRef = useRef<number | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({
+    x: 0,
+    y: 0,
+    panX: 0,
+    panY: 0,
+  });
+  const hasMovedRef = useRef<boolean>(false);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isCanvasExpanded, setIsCanvasExpanded] = useState<boolean>(false);
+  const hasAutoFittedRef = useRef<boolean>(false);
 
   // Collapsible Right Drawer for Ledger & Cypher Log (Requirement 1 & 6)
   const [isLedgerOpen, setIsLedgerOpen] = useState<boolean>(false);
@@ -188,7 +195,7 @@ export default function ForensicDossier() {
   const [reaffirmedGreenActive, setReaffirmedGreenActive] = useState<boolean>(true);
 
   // Collapsible First-Time Clarity Legend (Requirement 8)
-  const [showHowToRead, setShowHowToRead] = useState<boolean>(true);
+  const [showHowToRead, setShowHowToRead] = useState<boolean>(false);
 
   // "Needs a Person" Queue State
   const [pendingQueue, setPendingQueue] = useState<PendingActionItem[]>([]);
@@ -403,6 +410,7 @@ export default function ForensicDossier() {
     setEvents([]);
     setStatusMessage(`Triggering multi-agent trace on Seed ${seedToRun}...`);
     runStartTimeRef.current = performance.now();
+    hasAutoFittedRef.current = false;
 
     try {
       const speed = noPacing ? 0 : 120;
@@ -795,21 +803,16 @@ export default function ForensicDossier() {
       });
     }
 
-    // 3. Strict non-overlapping coordinate generation with widescreen aspect ratio
-    const nodeHeight = 36;
-    const nodeGap = 16;
-    const slotHeight = nodeHeight + nodeGap; // 52px per slot: guaranteed non-overlapping
+    // 3. Strict non-overlapping coordinate generation with balanced readable layout
+    const nodeHeight = 46;
+    const nodeGap = 12;
+    const slotHeight = 58; // 58px per slot: guaranteed non-overlapping (46px card + 12px gap)
 
     const maxNodesInCol = Math.max(1, ...Object.values(colMap).map((list) => list.length));
     const virtualHeight = Math.max(650, maxNodesInCol * slotHeight + 140);
-    // Balanced widescreen aspect ratio (~1.9) ensures columns span the full viewport width
-    const virtualWidth = Math.max(1500, Math.round(virtualHeight * 1.9));
-
+    const colSpacing = 240;
     const startX = 140;
-    const colSpacing =
-      roleOrder.length > 1
-        ? Math.round((virtualWidth - 2 * startX) / (roleOrder.length - 1))
-        : 280;
+    const virtualWidth = Math.max(1200, startX * 2 + Math.max(1, roleOrder.length - 1) * colSpacing);
 
     const pos: Record<string, { x: number; y: number; col: number; row: number }> = {};
 
@@ -914,6 +917,143 @@ export default function ForensicDossier() {
     return set;
   }, [selectedEntityId, whyData]);
 
+  // Zoom centered on canvas center for +/- controls
+  const zoomBy = useCallback((factor: number) => {
+    const container = canvasContainerRef.current;
+    const rect = container?.getBoundingClientRect();
+    const centerX = rect ? rect.width / 2 : 600;
+    const centerY = rect ? rect.height / 2 : 300;
+
+    setZoom((currZoom) => {
+      const newZoom = Math.min(Math.max(Number((currZoom * factor).toFixed(2)), 0.15), 3.0);
+      setPan((currPan) => {
+        const newPanX = Math.round(centerX - (centerX - currPan.x) * (newZoom / currZoom));
+        const newPanY = Math.round(centerY - (centerY - currPan.y) * (newZoom / currZoom));
+        return { x: newPanX, y: newPanY };
+      });
+      return newZoom;
+    });
+  }, []);
+
+  // Fit entire graph into current container dimensions
+  const fitView = useCallback(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const w = rect.width || 1200;
+    const h = rect.height || 600;
+
+    const positions = Object.values(nodePositions);
+    if (positions.length === 0) {
+      setZoom(1.0);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    positions.forEach((p) => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+
+    const marginX = 80;
+    const marginY = 50;
+    const graphLeft = minX - 40 - marginX;
+    const graphRight = maxX + 40 + marginX;
+    const graphTop = minY - 23 - marginY;
+    const graphBottom = maxY + 23 + marginY;
+
+    const graphW = Math.max(100, graphRight - graphLeft);
+    const graphH = Math.max(100, graphBottom - graphTop);
+
+    const scaleX = w / graphW;
+    const scaleY = h / graphH;
+    const targetZoom = Math.min(Math.max(Number(Math.min(scaleX, scaleY).toFixed(2)), 0.2), 1.2);
+
+    const graphCenterX = (graphLeft + graphRight) / 2;
+    const graphCenterY = (graphTop + graphBottom) / 2;
+
+    const targetPanX = Math.round(w / 2 - graphCenterX * targetZoom);
+    const targetPanY = Math.round(h / 2 - graphCenterY * targetZoom);
+
+    setZoom(targetZoom);
+    setPan({ x: targetPanX, y: targetPanY });
+  }, [nodePositions]);
+
+  // Auto-fit on first load or when nodes change
+  useEffect(() => {
+    if (displayedNodes.length > 0 && !hasAutoFittedRef.current) {
+      hasAutoFittedRef.current = true;
+      const timer = setTimeout(() => {
+        fitView();
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [displayedNodes.length, fitView]);
+
+  // Direct 1:1 Canvas Drag and Wheel Zoom Handlers
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    setIsDragging(true);
+    hasMovedRef.current = false;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDragging) {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        hasMovedRef.current = true;
+      }
+      setPan({
+        x: Math.round(dragStartRef.current.panX + dx),
+        y: Math.round(dragStartRef.current.panY + dy),
+      });
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDragging) {
+      setIsDragging(false);
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    const newZoom = Math.min(Math.max(Number((zoom * factor).toFixed(2)), 0.15), 3.0);
+
+    const newPanX = Math.round(mouseX - (mouseX - pan.x) * (newZoom / zoom));
+    const newPanY = Math.round(mouseY - (mouseY - pan.y) * (newZoom / zoom));
+
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
+  };
+
   return (
     <div
       style={{
@@ -928,93 +1068,95 @@ export default function ForensicDossier() {
       }}
     >
       {/* 1. TOP FORENSIC DOSSIER HEADER */}
-      <header
-        className="border-neo-bottom"
-        style={{
-          padding: "12px 24px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          backgroundColor: "var(--bg-paper)",
-          flexShrink: 0,
-          flexWrap: "wrap",
-          gap: "12px",
-        }}
-      >
-        <div>
-          <div className="mono-label" style={{ color: "var(--ink-secondary)", marginBottom: "2px" }}>
-            FalkorDB Context-Layer Forensic Instrument · Track 1
-          </div>
-          <h1
-            className="font-display"
-            style={{
-              fontSize: "24px",
-              fontWeight: 700,
-              letterSpacing: "-0.02em",
-              lineHeight: 1.2,
-            }}
-          >
-            {registry?.vocabulary?.title || "Tainted: Chain of Custody Dossier"}
-          </h1>
-          <p
-            className="font-body"
-            style={{
-              fontSize: "14px",
-              color: "var(--ink-secondary)",
-              maxWidth: "680px",
-              marginTop: "2px",
-            }}
-          >
-            {registry?.vocabulary?.explainer ||
-              "When a trusted fact is retracted, Tainted traces every batch and customer resting on it, holds compromised lots, and reaffirms clean inventory with mathematical proof."}
-          </p>
-        </div>
-
-        {/* Right Status Stamps Device & Connectivity Badge */}
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: "6px" }}>
-            <span className="forensic-stamp stamp-suspect">SUSPECT</span>
-            <span className="forensic-stamp stamp-taint">HOLD</span>
-            <span className="forensic-stamp stamp-reaffirm">REAFFIRMED</span>
-            <span className="forensic-stamp stamp-suspect">ESCALATED</span>
+      {!isCanvasExpanded && (
+        <header
+          className="border-neo-bottom"
+          style={{
+            padding: "8px 20px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            backgroundColor: "var(--bg-paper)",
+            flexShrink: 0,
+            flexWrap: "wrap",
+            gap: "10px",
+          }}
+        >
+          <div>
+            <div className="mono-label" style={{ color: "var(--ink-secondary)", marginBottom: "2px", fontSize: "10px" }}>
+              FalkorDB Context-Layer Forensic Instrument · Track 1
+            </div>
+            <h1
+              className="font-display"
+              style={{
+                fontSize: "20px",
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+                lineHeight: 1.2,
+              }}
+            >
+              {registry?.vocabulary?.title || "Tainted: Chain of Custody Dossier"}
+            </h1>
+            <p
+              className="font-body"
+              style={{
+                fontSize: "13px",
+                color: "var(--ink-secondary)",
+                maxWidth: "680px",
+                marginTop: "2px",
+              }}
+            >
+              {registry?.vocabulary?.explainer ||
+                "When a trusted fact is retracted, Tainted traces every batch and customer resting on it, holds compromised lots, and reaffirms clean inventory with mathematical proof."}
+            </p>
           </div>
 
-          <div
-            className="border-neo font-mono"
-            style={{
-              padding: "6px 12px",
-              fontSize: "11px",
-              backgroundColor: "var(--bg-paper-elevated)",
-              display: "flex",
-              gap: "12px",
-            }}
-          >
-            <div>
-              <span style={{ color: "var(--ink-muted)" }}>API: </span>
-              <strong style={{ color: apiOnline ? "var(--signal-reaffirm)" : "var(--signal-taint)" }}>
-                {apiOnline ? "ONLINE" : "STANDBY"}
-              </strong>
+          {/* Right Status Stamps Device & Connectivity Badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <span className="forensic-stamp stamp-suspect">SUSPECT</span>
+              <span className="forensic-stamp stamp-taint">HOLD</span>
+              <span className="forensic-stamp stamp-reaffirm">REAFFIRMED</span>
+              <span className="forensic-stamp stamp-suspect">ESCALATED</span>
             </div>
-            <div style={{ borderLeft: "1px solid var(--ink-primary)", paddingLeft: "12px" }}>
-              <span style={{ color: "var(--ink-muted)" }}>AGENT: </span>
-              <strong style={{ color: "var(--ink-primary)" }}>{agentStatus}</strong>
+
+            <div
+              className="border-neo font-mono"
+              style={{
+                padding: "4px 10px",
+                fontSize: "11px",
+                backgroundColor: "var(--bg-paper-elevated)",
+                display: "flex",
+                gap: "10px",
+              }}
+            >
+              <div>
+                <span style={{ color: "var(--ink-muted)" }}>API: </span>
+                <strong style={{ color: apiOnline ? "var(--signal-reaffirm)" : "var(--signal-taint)" }}>
+                  {apiOnline ? "ONLINE" : "STANDBY"}
+                </strong>
+              </div>
+              <div style={{ borderLeft: "1px solid var(--ink-primary)", paddingLeft: "10px" }}>
+                <span style={{ color: "var(--ink-muted)" }}>AGENT: </span>
+                <strong style={{ color: "var(--ink-primary)" }}>{agentStatus}</strong>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* 2. PRIMARY VERB ACTION & FOUR-COUNT ORIENTATION BOARD (First Screen Usability) */}
       <section
         className="border-neo-bottom"
         style={{
-          padding: "10px 24px",
+          padding: isCanvasExpanded ? "4px 16px" : "6px 20px",
           backgroundColor: "var(--bg-paper-sunken)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexShrink: 0,
           flexWrap: "wrap",
-          gap: "16px",
+          gap: "10px",
         }}
       >
         {/* Left: Primary Verb Action + Seed Selectors */}
@@ -1612,10 +1754,34 @@ export default function ForensicDossier() {
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <button
                 onClick={() => {
+                  setIsCanvasExpanded((prev) => {
+                    const next = !prev;
+                    setTimeout(fitView, 120);
+                    return next;
+                  });
+                }}
+                className={`font-mono border-neo touch-target-44 ${isCanvasExpanded ? "shadow-neo-selected" : ""}`}
+                style={{
+                  padding: "3px 10px",
+                  backgroundColor: isCanvasExpanded ? "var(--ink-primary)" : "var(--bg-paper)",
+                  color: isCanvasExpanded ? "var(--bg-paper)" : "var(--ink-primary)",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+                title="Toggle expanded canvas workspace (hides top header for maximum graph area)"
+              >
+                {isCanvasExpanded ? "RESTORE HEADER" : "EXPAND CANVAS"}
+              </button>
+
+              <button
+                onClick={() => {
                   if (!document.fullscreenElement) {
                     canvasContainerRef.current?.requestFullscreen?.().catch(() => {});
+                    setTimeout(fitView, 120);
                   } else {
                     document.exitFullscreen?.().catch(() => {});
+                    setTimeout(fitView, 120);
                   }
                 }}
                 className="font-mono border-neo touch-target-44"
@@ -1632,7 +1798,7 @@ export default function ForensicDossier() {
               </button>
 
               <button
-                onClick={() => setZoom((z) => Math.min(Number((z * 1.2).toFixed(2)), 3.0))}
+                onClick={() => zoomBy(1.2)}
                 className="font-mono border-neo touch-target-44"
                 style={{
                   padding: "3px 8px",
@@ -1647,7 +1813,7 @@ export default function ForensicDossier() {
               </button>
 
               <button
-                onClick={() => setZoom((z) => Math.max(Number((z / 1.2).toFixed(2)), 0.3))}
+                onClick={() => zoomBy(1 / 1.2)}
                 className="font-mono border-neo touch-target-44"
                 style={{
                   padding: "3px 8px",
@@ -1662,10 +1828,7 @@ export default function ForensicDossier() {
               </button>
 
               <button
-                onClick={() => {
-                  setZoom(1.0);
-                  setPan({ x: 0, y: 0 });
-                }}
+                onClick={fitView}
                 className="font-mono border-neo touch-target-44"
                 style={{
                   padding: "3px 10px",
@@ -1674,7 +1837,7 @@ export default function ForensicDossier() {
                   fontWeight: 700,
                   cursor: "pointer",
                 }}
-                title="Fit to View (100%)"
+                title="Fit entire evidence graph to window"
               >
                 FIT VIEW ({Math.round(zoom * 100)}%)
               </button>
@@ -1716,67 +1879,14 @@ export default function ForensicDossier() {
           <div
             ref={canvasContainerRef}
             className="border-neo"
-            onWheel={(e) => {
-              e.preventDefault();
-              const delta = e.deltaY < 0 ? 1.1 : 0.9;
-              setZoom((z) => Math.min(Math.max(Number((z * delta).toFixed(2)), 0.3), 3.0));
-            }}
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setIsDragging(true);
-                dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
-              }
-            }}
-            onMouseMove={(e) => {
-              if (isDragging) {
-                setPan({
-                  x: e.clientX - dragStartRef.current.x,
-                  y: e.clientY - dragStartRef.current.y,
-                });
-              }
-            }}
-            onMouseUp={() => setIsDragging(false)}
-            onMouseLeave={() => {
-              setIsDragging(false);
-              setHoveredNode(null);
-            }}
-            onTouchStart={(e) => {
-              if (e.touches.length === 1) {
-                setIsDragging(true);
-                dragStartRef.current = { x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y };
-              } else if (e.touches.length === 2) {
-                const dist = Math.hypot(
-                  e.touches[0].clientX - e.touches[1].clientX,
-                  e.touches[0].clientY - e.touches[1].clientY
-                );
-                touchDistanceRef.current = dist;
-              }
-            }}
-            onTouchMove={(e) => {
-              if (e.touches.length === 1 && isDragging) {
-                setPan({
-                  x: e.touches[0].clientX - dragStartRef.current.x,
-                  y: e.touches[0].clientY - dragStartRef.current.y,
-                });
-              } else if (e.touches.length === 2 && touchDistanceRef.current) {
-                const dist = Math.hypot(
-                  e.touches[0].clientX - e.touches[1].clientX,
-                  e.touches[0].clientY - e.touches[1].clientY
-                );
-                const factor = dist / touchDistanceRef.current;
-                if (Math.abs(factor - 1) > 0.05) {
-                  setZoom((z) => Math.min(Math.max(Number((z * factor).toFixed(2)), 0.3), 3.0));
-                  touchDistanceRef.current = dist;
-                }
-              }
-            }}
-            onTouchEnd={() => {
-              setIsDragging(false);
-              touchDistanceRef.current = null;
-            }}
+            onWheel={handleWheel}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={() => setIsDragging(false)}
             style={{
               flex: 1,
-              minHeight: 0,
+              minHeight: "440px",
               width: "100%",
               height: "100%",
               backgroundColor: "var(--bg-paper-sunken)",
@@ -1787,6 +1897,7 @@ export default function ForensicDossier() {
               alignItems: "center",
               justifyContent: "center",
               userSelect: "none",
+              touchAction: "none",
             }}
           >
             {/* Visible Mobile Touch Pan/Zoom Hint Banner (Requirement 6) */}
@@ -1808,9 +1919,10 @@ export default function ForensicDossier() {
                 display: "flex",
                 alignItems: "center",
                 gap: "6px",
+                opacity: 0.85,
               }}
             >
-              <span>DRAG TO MOVE</span>
+              <span>DRAG TO PAN · SCROLL TO ZOOM</span>
             </div>
             {displayedNodes.length === 0 ? (
               <div
@@ -1850,9 +1962,7 @@ export default function ForensicDossier() {
               <svg
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${totalCanvasWidth} ${totalCanvasHeight}`}
-                preserveAspectRatio="xMidYMid meet"
-                style={{ width: "100%", height: "100%", display: "block" }}
+                style={{ width: "100%", height: "100%", display: "block", overflow: "hidden" }}
               >
                 <defs>
                   <marker
@@ -2082,7 +2192,12 @@ export default function ForensicDossier() {
                       <g
                         key={`node-${node.id}`}
                         transform={`translate(${pos.x}, ${pos.y})`}
-                        onClick={() => handleOpenWhy(node.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!hasMovedRef.current) {
+                            handleOpenWhy(node.id);
+                          }
+                        }}
                         onMouseEnter={(e) => {
                           setHoveredNode(node);
                           setHoverPos({ x: e.clientX, y: e.clientY });
