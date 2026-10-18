@@ -458,6 +458,7 @@ export default function ForensicDossier() {
     setEdges([]);
     setStats(null);
     setEvents([]);
+    setPendingQueue([]);
     setSelectedEntityId(null);
     setWhyData(null);
     setStatusMessage("System standing by in clean state. No incident seed selected.");
@@ -922,13 +923,16 @@ export default function ForensicDossier() {
 
   // Determine next human action description
   const nextHumanActionText = useMemo(() => {
+    if (activeSeed === null || nodes.length === 0) {
+      return "No incident selected. System standing by on clean graph.";
+    }
     if (pendingQueue.length > 0) {
       const first = pendingQueue[0];
       const actionName = formatVocab(first.action_kind);
       return `Operator review required: Adjudicate ${actionName} for target ${first.target_entity_id}.`;
     }
     return registry?.vocabulary?.next_action_empty || "No manual actions pending. All graph paths verified by policy.";
-  }, [pendingQueue, registry, formatVocab]);
+  }, [activeSeed, nodes.length, pendingQueue, registry, formatVocab]);
 
   // Causal path set for highlighting in Why inspection (Rule 7)
   const highlightedEntitySet = useMemo(() => {
@@ -1269,7 +1273,7 @@ export default function ForensicDossier() {
                   if (isSelected) {
                     handleClearSeed();
                   } else {
-                    handleTriggerIncident(seed);
+                    setActiveSeed(seed);
                   }
                 }}
                 disabled={isTriggering}
@@ -1285,7 +1289,7 @@ export default function ForensicDossier() {
                   cursor: "pointer",
                   fontSize: "12px",
                 }}
-                title={isSelected ? `Click to deselect Seed ${seed} (set to None)` : `Investigate Seed ${seed}`}
+                title={isSelected ? `Click to deselect Seed ${seed} (set to None)` : `Select Seed ${seed}`}
               >
                 Seed {seed}
               </button>
@@ -1293,7 +1297,7 @@ export default function ForensicDossier() {
           })}
 
           <button
-            onClick={() => handleTriggerIncident(Math.floor(Math.random() * 899) + 100)}
+            onClick={() => setActiveSeed(Math.floor(Math.random() * 899) + 100)}
             disabled={isTriggering}
             className="font-mono border-neo touch-target-44"
             style={{
@@ -1528,7 +1532,7 @@ export default function ForensicDossier() {
         className="border-neo-bottom font-mono"
         style={{
           padding: "8px 24px",
-          backgroundColor: pendingQueue.length > 0 ? "var(--bg-paper-elevated)" : "var(--bg-paper)",
+          backgroundColor: (activeSeed !== null && pendingQueue.length > 0) ? "var(--bg-paper-elevated)" : "var(--bg-paper)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -1541,7 +1545,7 @@ export default function ForensicDossier() {
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <strong
             style={{
-              color: pendingQueue.length > 0 ? "var(--signal-taint)" : "var(--signal-reaffirm)",
+              color: (activeSeed !== null && pendingQueue.length > 0) ? "var(--signal-taint)" : "var(--signal-reaffirm)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
             }}
@@ -1574,6 +1578,7 @@ export default function ForensicDossier() {
           </button>
 
           <button
+            id="tab-needs-a-person"
             onClick={() => setActiveTab("queue")}
             className={`font-mono border-neo touch-target-44 ${
               activeTab === "queue" ? "shadow-neo-selected" : ""
@@ -1588,7 +1593,7 @@ export default function ForensicDossier() {
               fontSize: "12px",
             }}
           >
-            Review Queue ({pendingQueue.length})
+            Needs a Person ({activeSeed === null ? 0 : pendingQueue.length})
           </button>
 
           <button

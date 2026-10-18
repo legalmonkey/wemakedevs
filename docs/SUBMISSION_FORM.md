@@ -22,7 +22,7 @@ Track 1: Agents That Act on Connected Data
 ---
 
 ### Repository URL
-[Repository URL placeholder]
+https://github.com/legalmonkey/wemakedevs
 
 ---
 
@@ -37,14 +37,7 @@ Tested locally from a clean clone. Requires Docker Desktop running FalkorDB (`do
 ---
 
 ### How Did You Use FalkorDB [250-350 words]
-We utilized FalkorDB as the single source of truth, coordination plane, and policy execution engine across six core technical challenges:
-
-- **Multi-Hop Causal Propagation:** To trace contamination across supplier lots, blending tanks, and distribution shipments, TracerAgent executes recursive variable-length path traversal using `MATCH path = (e:Event {id: $event})-[:TAINTS*]->(target) RETURN target, length(path) AS hops, [n in nodes(path) | n.id] AS via_path`, capturing full provenance.
-- **Lateral Co-Contamination Discovery:** When batches share physical tanks or equipment, TracerAgent uncovers hidden cross-contamination paths via lateral Cypher queries: `MATCH (u {id: $u})-[r]-(s) WHERE (r.role = 'lateral-link' OR type(r) = $lat_kind) AND s.id <> $u RETURN collect(DISTINCT s.id)`, achieving 100% hidden-link recall on benchmark faults.
-- **Independent Evidence Reaffirmation:** To prevent blanket recalls, AdjudicatorAgent checks independent corroboration in FalkorDB via `MATCH (d {id: $dec})<-[r]-(ev) WHERE r.role = 'support' RETURN ev.id, ev.kind, properties(ev)`. Batches backed by at least the configured minimum (default two) independent evidence groups are reaffirmed, halting taint spread.
-- **Policy Enforcement via Cypher Tool Gates:** Actions are governed by parameterised Cypher gates evaluated directly on the graph. For instance, `hold_unit` executes `MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' RETURN count(u) > 0 AS allowed`. If an entity is clean or reaffirmed, the tool is locked. Local deterministic formatting adapters handle natural language text, ensuring LLMs never decide verdicts.
-- **Atomic Quarantine and Notice Dispatch:** DispatcherAgent executes atomic holds and recipient exposure notices via a single Cypher query: `MATCH (u {id: $unit_id}) ... SET u.status = 'quarantined' MERGE (h:Action {id: $hold_id}) ... WITH u, h OPTIONAL MATCH (u)-[:SHIPS_IN]->(s)-[:DELIVERED_TO]->(r) FOREACH ... MERGE (n:Action ...)` to maintain transactional graph consistency.
-- **Crash Safety, Persistent Memory, and Tool APIs:** Crash recovery was tested on a seed (seed 404) with a mid-work OS-process kill on TracerAgent, matching the baseline graph hash with zero duplicate actions. Permanent outcomes are recorded to `g_memory_{tenant}` via `MERGE (e:Episode)-[:EPISODE_OUTCOME]->(p:Procedure)`. Graph algorithm tools (`algo_shortest_path`, `algo_centrality`, `algo_components`) are exposed over MCP; not used in the demo run.
+We used FalkorDB as the shared state, coordination layer and policy engine for four agents (Sentinel, Tracer, Adjudicator, Dispatcher). The agents never call each other; they only read and write the graph. It solved six problems. (1) Multi-hop tracing: the Tracer follows a variable-length path from a retracted event through decisions, batches and shipments to customers, and stores the hop count and path on each TAINTS edge. (2) Lateral links: batches that share a lot or equipment are found by a Cypher traversal over lateral-link relationships; on 100 generated incidents, every injected lateral link was recalled. (3) Reaffirmation: a Cypher support check counts independent evidence groups per decision, and a decision with at least the configured minimum (default two) is reaffirmed instead of recalled. (4) Tool gates: an agent is offered the hold tool only when a parameterised Cypher gate confirms the batch is tainted and not reaffirmed; no language model decides verdicts, and notice text comes from a deterministic formatter. (5) Atomic dispatch: the Dispatcher places a hold and drafts customer notices for exposed recipients in one idempotent query, which avoids duplicate actions after a restart. (6) Crash safety, memory and tools: in a test on seed 404, killing the Tracer process mid-work and restarting it produced a final graph identical to an uninterrupted run, with no duplicate actions. Human approvals and rejections are stored as episodes linked to procedures in a per-tenant graph. Shortest-path, centrality and connected-components tools are exposed over MCP but are not used in the demo run. The exact Cypher queries are listed in the repository README.
 
 ---
 

@@ -112,6 +112,7 @@ Verified empirically on live FalkorDB instance:
 
 ---
 
+<a id="cypher-queries"></a>
 ## 5. Cypher Queries and Graph Algorithms
 
 ### Cypher Query Templates
@@ -119,7 +120,7 @@ Tainted relies on 9 primary Cypher query templates in production:
 
 | Purpose | File & Function | Cypher Query Template |
 | :--- | :--- | :--- |
-| **1. Multi-Hop Trace** | `engine/falkordb_client.py:trace` | `MATCH (e:Event {id: $event})-[:TAINTS*]->(target) RETURN target, length(path) AS hops, [n in nodes(path) \| n.id] AS via_path` |
+| **1. Multi-Hop Trace** | `engine/falkordb_client.py:trace` | `MATCH path = (e:Event {id: $event})-[:TAINTS*]->(target) RETURN target, length(path) AS hops, [n in nodes(path) \| n.id] AS via_path` |
 | **2. Support Check** | `engine/falkordb_client.py:support` | `MATCH (d {id: $dec})<-[r]-(ev) WHERE r.role = 'support' OR type(r) IN ['SUPPORT', 'SUPPORTS'] RETURN ev.id, ev.kind, properties(ev)` |
 | **3. Lateral Traversal** | `engine/falkordb_client.py:siblings` | `MATCH (u {id: $u})-[r1]->(p)<-[r2]-(s) WHERE r1.role = 'derives-from' AND r2.role = 'derives-from' AND s.id <> $u RETURN p.id, collect(DISTINCT s.id)` <br/> `MATCH (u {id: $u})-[r]-(s) WHERE (r.role = 'lateral-link' OR type(r) = $lat_kind) AND s.id <> $u RETURN collect(DISTINCT s.id)` |
 | **4. Policy Gates** | `config/gates.yaml` & `engine/falkordb_client.py:evaluate_gate` | `MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' AND coalesce(u.verdict, '') <> 'reaffirmed' RETURN count(u) > 0 AS allowed` |
@@ -218,19 +219,22 @@ python -m pytest tests -q
 
 ---
 
-## 9. Demo Walkthrough
+## 9. Interactive Walkthrough & Forensic Lifecycle
 
-A timed 3-minute screen recording walkthrough (detailed in `docs/VIDEO_SCRIPT.md`):
+When running the interactive dossier ([http://localhost:3000](http://localhost:3000)), operators experience the complete autonomous forensic workflow:
 
-| Timecode | Beat | Action & Visual | Narrative |
-| :--- | :--- | :--- | :--- |
-| **0:00 – 0:30** | **The Problem** | Open [http://localhost:3000](http://localhost:3000) (Seed 101). | When trusted facts are retracted, manufacturers struggle with dependency tracing. Tainted models cold-chain topology in FalkorDB. |
-| **0:30 – 0:55** | **Trigger Alert** | Click "INVESTIGATE RECALL". | Sentinel Agent flags temperature telemetry sensor calibration drift (+2.8°C). |
-| **0:55 – 1:25** | **Multi-Hop & Lateral Link** | Tracer traverses graph; lateral edge flashes. | Contamination spreads through tanks; sideways connection into shared lot is exposed. |
-| **1:25 – 1:55** | **Reaffirmation** | Click green `REAFFIRMED` node. | Adjudicator verifies independent corroboration ($\ge 2$ groups); 5 clean batches are reaffirmed. |
-| **1:55 – 2:25** | **Quarantine & Why Drawer** | Click red `HOLD` node; Why Drawer opens. | Parameterized Cypher gate places hold on 7 affected units; Why Drawer displays full causal trajectory breadcrumbs. |
-| **2:25 – 2:45** | **Human Sign-Off** | Click "Approve Notice" button. | Outbound notice requires human governance; approval records episode to persistent memory. |
-| **2:45 – 3:00** | **Cypher Log & Close** | Press `L` to toggle live Cypher log. | Live stream of executed Cypher queries; closing disclosure on benchmark results and synthetic data. |
+1. **Incident Trigger & Ingestion**:
+   Selecting an incident seed (e.g., `Seed 101`) and clicking **"INVESTIGATE RECALL"** triggers the Sentinel Agent, which flags anomalous telemetry (such as a temperature telemetry sensor calibration drift of +2.8°C) and writes the retracted fact into FalkorDB.
+2. **Multi-Hop & Lateral Propagation**:
+   The Tracer Agent recursively expands downstream causal dependencies (`Event -> Decision -> Unit -> Shipment -> Recipient`). Crucially, it traverses lateral connections (such as `SHARED_LOT` between blending tanks), uncovering cross-contamination between separate product lines that conventional ERP queries overlook.
+3. **Evidence-Based Reaffirmation**:
+   Rather than executing a panic-driven blanket recall, the Adjudicator Agent verifies whether affected units have independent corroborating evidence ($\ge 2$ independent groups). Clean units backed by independent lab assays are stamped `REAFFIRMED` in emerald green, halting taint propagation and protecting safe inventory.
+4. **Cypher-Gated Quarantine & Why Drawer**:
+   Compromised batches are evaluated against parameterized Cypher policy gates. When the gate confirms a unit is tainted and not reaffirmed, the Dispatcher Agent places a quarantine hold. Clicking any entity opens the **Why Drawer**, displaying the full tamper-evident causal trajectory from the drifting sensor to the held batch, backed by stored graph provenance.
+5. **Human Governance & Persistent Memory**:
+   Advisory notices for exposed downstream customers are queued in the **"Needs a Person"** queue. Operators review and approve the notice text with one click. Every human approval or rejection is recorded as an episode edge (`EPISODE_OUTCOME`) linked to standard procedures in persistent memory for future ranking.
+6. **Live Cypher Transparency**:
+   Pressing `L` (or clicking "Cypher Log" in the footer) opens the live stream drawer showing the exact OpenCypher queries executing against FalkorDB in real time.
 
 ---
 

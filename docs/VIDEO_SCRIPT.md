@@ -1,87 +1,101 @@
-# Tainted — 3-Minute Video Demonstration Script
+# Tainted — Simple 3-Minute Video Demo Script
 
-Screen recording script and spoken narration for the production build demonstration (`npm run build && npm start`).
-
----
-
-## Pre-Recording Checklist
-- [ ] FalkorDB container running: `docker ps` confirms `falkordb-tainted` on port `6379`.
-- [ ] Backend running: `python -m uvicorn api.main:app --port 8001 --host 127.0.0.1`.
-- [ ] Frontend running in production mode: `cd ui && npm run build && npm start` on port `3000`.
-- [ ] Next.js development badge is absent from bottom-left corner.
-- [ ] Browser window width set to exactly `1440px` (height `900px`).
-- [ ] Demo Seed selected: **Seed 101** (empirically verified in two consecutive runs: 35 total units, 7 held, 5 reaffirmed, 0 escalated, 23 unaffected).
-- [ ] Primary button verified: **INVESTIGATE RECALL** (`#btn-investigate`).
-- [ ] Narration rule: Do not cite unmeasured speed numbers or read out the footer duration aloud.
+A simple, conversational, step-by-step walkthrough for your 3-minute recording. No complex jargon—just a clear story of how Tainted works and why it wins.
 
 ---
 
-## Timed Shot List & Spoken Narration (180 Seconds Total)
+## What to Do Before Hitting Record
+1. Open `http://localhost:3000/` in your browser (1440 × 900 or full screen).
+2. Click **`None`** (`#btn-seed-none`) in the top bar so the canvas is in clean standby mode.
+3. Keep this cheat sheet next to you on your phone or second monitor!
 
-### Beat 1: The Problem & The Baseline Canvas (0:00 – 0:30)
-- **Visual:** Browser opens to `http://localhost:3000`. Calm paper background shows the food supply chain topology before incident trigger on Seed 101. Node counters show 0 held.
-- **Action:** Mouse hovers over clean batch nodes and supplier lots.
-- **Spoken Narration (0:00 – 0:30):**
-  > "When a trusted fact turns out to be wrong—like a drifting sensor or a supplier alert—manufacturers struggle to know which release decisions depended on it. The usual result is days of spreadsheet tracing, followed by either an over-broad recall or a missed contaminated batch.
+---
+
+## The 5 Simple Clicks & What to Say (3:00 Total)
+
+```
+0:00 ─── [1. Show Screen] The Problem (Food Recall Chaos)
+0:35 ─── [2. Click "Investigate Recall"] The 4 AI Agents & Lateral Traversal
+1:15 ─── [3. Click "Reaffirmed"] Sparing Safe Food (The Reaffirmation Beat)
+1:50 ─── [4. Click "Held" + Batch] The Why Drawer (Verifiable Proof)
+2:25 ─── [5. Click "Needs a Person" + "Approve"] Human in the Loop & Results
+3:00 ─── Finished!
+```
+
+---
+
+### Step 1: The Problem (0:00 – 0:35)
+* **What to do on screen**: 
+  - Point your mouse at the screen. You're on `http://localhost:3000/`. The canvas says *"Evidence Graph Awaiting Incident Signal"* and all metric counters show **0**.
+* **What to say**:
+  > "Imagine you run a food manufacturing plant. Suddenly, a pasteurizer temperature sensor drifts, or a supplier calls with a contamination alert.
   > 
-  > Tainted models evidence, decisions, batches, shipments, and customer accounts as a property graph in FalkorDB, with four autonomous agents coordinating on top of it. Let's see what happens when a contamination alert strikes."
+  > What happens today? Pure chaos. Quality teams spend days digging through messy spreadsheets. Usually, they end up doing a massive blanket recall—throwing away millions of dollars of perfectly safe food—or worse, they miss a cross-contaminated batch that already reached grocery shelves.
+  > 
+  > We built **Tainted** to solve this. Tainted is an autonomous forensic platform powered by **FalkorDB** that models your entire supply chain as a live property graph to isolate contamination with surgical precision."
 
 ---
 
-### Beat 2: Triggering the Incident & Sentinel Alert (0:30 – 0:55)
-- **Visual:** Operator confirms Seed 101 in the header and clicks the primary action button: **"INVESTIGATE RECALL"**.
-- **Action:** Click `INVESTIGATE RECALL`. Live event stream ticker begins updating. Sentinel Agent flags drifted sensor evidence.
-- **Spoken Narration (0:30 – 0:55):**
-  > "We select Seed 101 and click Investigate Recall. The Sentinel Agent immediately detects a calibration drift on an upstream sensor log.
+### Step 2: Triggering the Incident & The AI Agents (0:35 – 1:15)
+* **What to do on screen**: 
+  - Click **`Seed 101`** in the top bar.
+  - Click the big black button: **`INVESTIGATE RECALL`**.
+  - Watch the live stream light up and the graph populate. Point your mouse at the dashed link connecting the two lines.
+* **What to say**:
+  > "Let's see it in action. We select Seed 101 and click **Investigate Recall**.
   > 
-  > Instead of halting the entire facility, Sentinel writes the retracted evidence directly into FalkorDB and activates the multi-agent dependency trace."
+  > Behind the scenes, four autonomous agents immediately coordinate over FalkorDB:
+  > First, our **Sentinel Agent** catches the retracted sensor reading.
+  > Next, our **Tracer Agent** follows the contamination downstream—from raw ingredients, through processing decisions, to packaged products.
+  > 
+  > Look at this dashed link right here: Tracer uncovered **lateral cross-contamination**. Two completely separate product lines shared the same blending tank during the incident window. Traditional relational databases and ERPs miss these sideways dependencies all the time."
 
 ---
 
-### Beat 3: Multi-Hop Propagation & Lateral Links (0:55 – 1:25)
-- **Visual:** The Tracer Agent propagates `TAINTS` edges across the graph canvas. Amber warning stamps appear on affected batch lots. A lateral link flashes connecting a shared lot to an otherwise separate line.
-- **Action:** Zoom in on the canvas to highlight the lateral connection (`SHARED_LOT` / `TAINTS` hop).
-- **Spoken Narration (0:55 – 1:25):**
-  > "The Tracer Agent follows causal dependencies through processing decisions and blending tanks. Crucially, it uncovers sideways links through shared equipment that contaminated an adjacent product line.
+### Step 3: Sparing Safe Food (1:15 – 1:50)
+* **What to do on screen**: 
+  - Click the green **`REAFFIRMED (5)`** filter chip above the canvas.
+  - Click on one of the green batches on the canvas.
+* **What to say**:
+  > "Now, here is what makes Tainted truly special: it doesn't panic and recall everything.
   > 
-  > Traditional batch tracking easily misses these sideways dependencies, leaving contaminated products in circulation."
+  > Our **Adjudicator Agent** re-evaluates every decision against safety policies. If an affected batch had independent corroborating lab tests that proved it was clean, Tainted stamps it **green**—marked **Reaffirmed**.
+  > 
+  > These five batches touched the suspicious window, but they are completely safe. Tainted clears them immediately, protecting safe inventory and preventing wasteful factory halts."
 
 ---
 
-### Beat 4: The Reaffirmation Beat (1:25 – 1:55)
-- **Visual:** The Adjudicator Agent evaluates Decision nodes. Clean batches with independent valid support are stamped with tranquil green **`REAFFIRMED`** ink. Tile counters update: 5 units reaffirmed.
-- **Action:** Click on one of the green `REAFFIRMED` batch nodes on the canvas.
-- **Spoken Narration (1:25 – 1:55):**
-  > "Now the Adjudicator Agent re-evaluates each decision under a declared policy. Where independent valid evidence remains, the batch is reaffirmed.
+### Step 4: Quarantine Holds & The "Why Drawer" (1:50 – 2:25)
+* **What to do on screen**: 
+  - Click the red **`HELD (7)`** filter chip.
+  - Click directly on batch **`lot-batch-301`** (or its action node).
+  - The **Why Drawer** slides open from the right side! Show the breadcrumb path.
+* **What to say**:
+  > "For batches that genuinely lack safe evidence, our **Dispatcher Agent** issues quarantine holds on the seven compromised units.
   > 
-  > Here, five batches that touched the suspect window had independent corroborating tests. Adjudicator halts taint propagation and marks these batches reaffirmed, protecting clean inventory from unnecessary recall."
+  > But when an auditor or plant manager asks: *'Why did you hold this batch?'*, they don't get a vague AI guess. 
+  > 
+  > In just one click, the **Why Drawer** slides open. It reveals the exact, tamper-evident chain of custody: from the drifting sensor, through the release decision, directly to this batch—complete with the raw FalkorDB Cypher query proving the verdict. Total audit transparency in under two clicks."
 
 ---
 
-### Beat 5: Quarantine Hold & Why Drawer Provenance (1:55 – 2:25)
-- **Visual:** The Dispatcher Agent places holds on compromised batches. Red `HOLD` stamps appear on 7 units. Operator clicks an Action node; the **Why Drawer** slides out from the right showing the full causal trajectory.
-- **Action:** Click on a quarantine Action node (`act-hold-...`). Show the causal path breadcrumb in the Why Drawer (`sensorlog -> qualitydecision -> batchlot`).
-- **Spoken Narration (1:55 – 2:25):**
-  > "For batches lacking independent support, the Dispatcher Agent evaluates parameterized Cypher gates and places quarantine holds on the seven affected units.
+### Step 5: Human Sign-Off & Benchmark Results (2:25 – 3:00)
+* **What to do on screen**: 
+  - Click the **`Needs a Person`** queue tab at the top.
+  - Click the green **`Approve Notice`** button.
+  - Click the **`Evaluation`** tab.
+* **What to say**:
+  > "Finally, when it comes to notifying customers, we never let an AI send notices unmonitored. 
   > 
-  > Clicking any hold opens the Why Drawer. Every action stores the exact graph path that caused it, allowing quality teams to verify the chain of custody from the faulty sensor to the quarantined batch."
+  > Under our **Needs a Person** queue, Dispatcher drafts the recall notice specifically for affected customers, but waits for human approval. I click **Approve Notice**, and the sign-off is permanently committed to the graph.
+  > 
+  > Across 100 simulated benchmark incidents under declared blanket-recall rules, Tainted contained recalls to an average of just 32.5% of what a blunt blanket recall would take—saving over two-thirds of safe inventory, with zero false clearances.
+  > 
+  > That is Tainted: autonomous multi-agent precision, powered by FalkorDB."
 
 ---
 
-### Beat 6: Customer Notice & Human Sign-off (2:25 – 2:45)
-- **Visual:** An outbound shipment was delivered to a customer. An advisory notice action appears under `Pending Approval`. Operator clicks **"Approve Notice"**.
-- **Action:** Click the green **"Approve Notice"** button in the pending queue. Notice changes status to approved; badge updates.
-- **Spoken Narration (2:25 – 2:45):**
-  > "For downstream shipments, Dispatcher drafts customer advisory notices only for recipients who received a held batch.
-  > 
-  > Sensitive customer communications require human oversight. The operator reviews the drafted text and approves the notice, recording the human sign-off into FalkorDB."
-
----
-
-### Beat 7: Cypher Query Log & Closing (2:45 – 3:00)
-- **Visual:** Press `L` or click **"Cypher Log"** in the footer to reveal the live FalkorDB query stream.
-- **Action:** Scroll through the query log showing `MATCH`, `MERGE`, and gate evaluations. (Do not read out timing numbers).
-- **Spoken Narration (2:45 – 3:00):**
-  > "Pressing 'L' reveals our raw FalkorDB query log: every trace, gate evaluation, and episodic outcome runs directly on the graph.
-  > 
-  > On 100 generated incidents, under a declared blanket-recall rule, Tainted held a mean of 32.5% of the batches a blanket recall would, with no false reaffirmations against generated ground truth. Tainted demonstrates how graph-connected data turns crisis response into verifiable forensic precision."
+## Quick Practice Tips
+- **Speak naturally**: Don't memorize word-for-word; just follow the 5 story beats.
+- **Pacing**: Don't rush. 3 minutes is plenty of time for these 5 simple clicks.
+- **Don't read numbers from the footer**: Keep eyes on the graph, the green reaffirmations, and the Why Drawer!
