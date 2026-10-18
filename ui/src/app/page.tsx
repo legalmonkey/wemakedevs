@@ -235,9 +235,13 @@ export default function ForensicDossier() {
       if (e.key === "l" || e.key === "L") {
         setIsLedgerOpen((prev) => !prev);
       } else if (e.key === "Escape") {
-        if (document.fullscreenElement) {
-          document.exitFullscreen?.().catch(() => {});
-        }
+        const doc = typeof document !== "undefined" ? (document as any) : null;
+        if (doc?.exitFullscreen) doc.exitFullscreen().catch(() => {});
+        else if (doc?.webkitExitFullscreen) doc.webkitExitFullscreen();
+        else if (doc?.mozCancelFullScreen) doc.mozCancelFullScreen();
+        else if (doc?.msExitFullscreen) doc.msExitFullscreen();
+        setIsFullscreen(false);
+        setIsCanvasExpanded(false);
         if (whyDrawerOpen) setWhyDrawerOpen(false);
         if (isLedgerOpen) setIsLedgerOpen(false);
       }
@@ -1015,17 +1019,35 @@ export default function ForensicDossier() {
   // Listen for native fullscreen changes to keep UI state in sync
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFs = Boolean(document.fullscreenElement);
+      const doc = typeof document !== "undefined" ? (document as any) : null;
+      const isFs = Boolean(
+        doc?.fullscreenElement ||
+        doc?.webkitFullscreenElement ||
+        doc?.mozFullScreenElement ||
+        doc?.msFullscreenElement
+      );
       setIsFullscreen(isFs);
       setTimeout(fitView, 120);
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+    };
   }, [fitView]);
 
   // Direct 1:1 Canvas Drag and Wheel Zoom Handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest("button, a, input, select, textarea")) {
+      return;
+    }
     setIsDragging(true);
     hasMovedRef.current = false;
     dragStartRef.current = {
@@ -1839,11 +1861,21 @@ export default function ForensicDossier() {
               <button
                 id="btn-toggle-fullscreen"
                 onClick={() => {
-                  if (!document.fullscreenElement) {
-                    canvasContainerRef.current?.requestFullscreen?.().catch(() => {});
+                  const doc = typeof document !== "undefined" ? (document as any) : null;
+                  const fsElement = doc?.fullscreenElement || doc?.webkitFullscreenElement || doc?.mozFullScreenElement || doc?.msFullscreenElement;
+                  if (isFullscreen || fsElement) {
+                    if (doc?.exitFullscreen) doc.exitFullscreen().catch(() => {});
+                    else if (doc?.webkitExitFullscreen) doc.webkitExitFullscreen();
+                    else if (doc?.mozCancelFullScreen) doc.mozCancelFullScreen();
+                    else if (doc?.msExitFullscreen) doc.msExitFullscreen();
+                    setIsFullscreen(false);
                     setTimeout(fitView, 120);
                   } else {
-                    document.exitFullscreen?.().catch(() => {});
+                    const el = canvasContainerRef.current as any;
+                    if (el?.requestFullscreen) el.requestFullscreen().catch(() => {});
+                    else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                    else if (el?.mozRequestFullScreen) el.mozRequestFullScreen();
+                    else if (el?.msRequestFullscreen) el.msRequestFullscreen();
                     setTimeout(fitView, 120);
                   }
                 }}
@@ -1964,9 +1996,13 @@ export default function ForensicDossier() {
               touchAction: "none",
             }}
           >
-            {/* Native Fullscreen In-Canvas Floating Toolbar & Exit Button */}
-            {isFullscreen && (
+            {/* Native Fullscreen & Expanded Canvas In-Canvas Floating Toolbar */}
+            {(isFullscreen || isCanvasExpanded) && (
               <div
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
                 style={{
                   position: "absolute",
                   top: "12px",
@@ -1979,6 +2015,7 @@ export default function ForensicDossier() {
               >
                 <button
                   onClick={fitView}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="font-mono border-neo shadow-neo-btn"
                   style={{
                     padding: "6px 12px",
@@ -1994,6 +2031,7 @@ export default function ForensicDossier() {
                 </button>
                 <button
                   onClick={() => zoomBy(1.2)}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="font-mono border-neo shadow-neo-btn"
                   style={{
                     padding: "6px 10px",
@@ -2009,6 +2047,7 @@ export default function ForensicDossier() {
                 </button>
                 <button
                   onClick={() => zoomBy(1 / 1.2)}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="font-mono border-neo shadow-neo-btn"
                   style={{
                     padding: "6px 10px",
@@ -2024,10 +2063,17 @@ export default function ForensicDossier() {
                 </button>
                 <button
                   id="btn-exit-canvas-fullscreen"
-                  onClick={() => {
-                    if (document.fullscreenElement) {
-                      document.exitFullscreen?.().catch(() => {});
-                    }
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const doc = typeof document !== "undefined" ? (document as any) : null;
+                    if (doc?.exitFullscreen) doc.exitFullscreen().catch(() => {});
+                    else if (doc?.webkitExitFullscreen) doc.webkitExitFullscreen();
+                    else if (doc?.mozCancelFullScreen) doc.mozCancelFullScreen();
+                    else if (doc?.msExitFullscreen) doc.msExitFullscreen();
+                    setIsFullscreen(false);
+                    setIsCanvasExpanded(false);
+                    setTimeout(fitView, 120);
                   }}
                   className="font-mono border-neo shadow-neo-btn"
                   style={{
@@ -2040,7 +2086,7 @@ export default function ForensicDossier() {
                     letterSpacing: "0.04em",
                     boxShadow: "2px 2px 0px #000000",
                   }}
-                  title="Exit Fullscreen (or press Escape)"
+                  title="Exit Fullscreen / Restore Header (or press Escape)"
                 >
                   ✕ EXIT FULLSCREEN [ESC]
                 </button>
