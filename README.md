@@ -1,112 +1,280 @@
 # Tainted — Forensic Recall Tracer
 
-> **Every product recall has a moment of doubt.** A supplier flags a suspect lot, a lab finds an adulterant, or a temperature sensor spikes. The traditional response is a blanket recall: pull every batch, hold every truck, draft frantic customer notifications, and burn millions of dollars in inventory.
-> 
-> **Tainted** replaces the panic of blanket recalls with the mathematical precision of FalkorDB graph algorithms and Cypher tool gates. By tracing tainted chains-of-custody across supplier lots, blending tanks, finished packs, and cold-chain shipments, Tainted pinpoints the exact contamination perimeter and quietly **reaffirms** clean batches with verifiable independent proof.
+## 1. What Tainted Is and Who It Is For
+Tainted is an autonomous forensic recall containment system that tracks contamination spread and validates safe product release across complex supply chains. It is built for quality assurance directors, plant safety managers, and supply chain operators who face sudden contamination alerts and must prevent unnecessary blanket recalls. By modeling supplier lots, sensor logs, processing decisions, and distribution shipments as an in-memory property graph in FalkorDB, Tainted navigates multi-hop causal paths and lateral lot co-mingling. Autonomous agents coordinate strictly through graph mutations, evaluating parameterized Cypher tool gates to place targeted holds on contaminated units while reaffirming clean batches backed by independent corroborating evidence. The system replaces panic and manual spreadsheet tracing with verifiable causal trajectories, delivering stored provenance and human oversight for every containment action.
 
 ---
 
-## 1. Quickstart (One Documented Command)
+## 2. Track Entered
+**Track 1: Agents That Act on Connected Data**
+
+Tainted enters Track 1 by implementing autonomous agents (Sentinel, Tracer, Adjudicator, Dispatcher) that coordinate asynchronously solely through reading and mutating connected graph state in FalkorDB, enforcing safety invariants via Cypher tool gates and recording episodic memory outcomes.
+
+---
+
+## 3. Architecture
+
+```
+[ Sensor Spikes / Lab Reports / Ingestion ]
+                    │
+                    ▼
+          ┌───────────────────┐
+          │  Sentinel Agent   │
+          └─────────┬─────────┘
+                    │ writes suspect evidence
+                    ▼
+     ╔═════════════════════════════╗
+     ║   FalkorDB Property Graph   ║◄───────┐
+     ║  (Single Source of Truth)   ║        │
+     ╚══════════════╦══════════════╝        │
+                    │                       │
+      ┌─────────────┼─────────────┐         │
+      ▼             ▼             ▼         │
+┌───────────┐ ┌───────────┐ ┌───────────┐   │ reads / mutates
+│  Tracer   │ │Adjudicator│ │Dispatcher │───┘
+│   Agent   │ │   Agent   │ │   Agent   │
+└─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+      │             │             │ evaluates Cypher gates
+      └─────────────┼─────────────┘
+                    ▼
+      ┌───────────────────────────┐
+      │ Tool Server over MCP      │
+      │ (Shortest Path, Centrality│
+      │  Hold, Release, Notice)   │
+      └─────────────┬─────────────┘
+                    │
+                    ▼
+      ┌───────────────────────────┐
+      │ FastAPI Incident Service  │ (Port 8001)
+      └─────────────┬─────────────┘
+                    │ SSE Streams & REST
+                    ▼
+      ┌───────────────────────────┐
+      │ Next.js Evidence Dossier  │ (Port 3000)
+      └───────────────────────────┘
+```
+
+---
+
+## 4. Graph Data Model
+
+### Entity Relationship Diagram
+```mermaid
+graph LR
+    subgraph Upstream Evidence
+        SL[SensorLog / Evidence]
+        LT[LabTest / Evidence]
+        SPL[SupplierLot / Evidence]
+    end
+
+    subgraph Processing & Decisions
+        QD[QualityDecision / Decision]
+        BL[BatchLot / Unit]
+        SBL[BatchLot / Sibling Unit]
+    end
+
+    subgraph Outbound Distribution
+        DS[DispatchShipment / Shipment]
+        CA[CustomerAccount / Recipient]
+    end
+
+    subgraph Autonomous Actions
+        ACT[Quarantine Hold / Action]
+        ADV[Advisory Notice / Action]
+    end
+
+    SL -->|SUPPORT| QD
+    LT -->|SUPPORT| QD
+    SPL -->|DERIVES_FROM| BL
+    QD -->|APPLIES_TO| BL
+    QD -.->|TAINTS| BL
+    BL <-->|SHARED_LOT| SBL
+    QD -.->|TAINTS via Lateral Link| SBL
+    BL -->|SHIPS_IN| DS
+    DS -->|DELIVERED_TO| CA
+    BL -->|TRIGGERS| ACT
+    CA -->|TARGETS| ADV
+```
+
+### Node Labels, Relationship Types, and Key Properties
+Verified empirically on live FalkorDB instance:
+
+| Entity Type | Labels in Graph | Relationship Types | Key Properties |
+| :--- | :--- | :--- | :--- |
+| **Evidence** | `Evidence`, `SensorLog`, `LabTest`, `SupplierLot` | `SUPPORT`, `SUPPORTS`, `DERIVES_FROM` | `id`, `kind`, `role`, `valid`, `unverifiable`, `group_id`, `is_suspect`, `timestamp` |
+| **Decision** | `Decision`, `QualityDecision` | `SUPPORT`, `APPLIES_TO`, `TAINTS` | `id`, `kind`, `role`, `verdict`, `status`, `independent_groups_count`, `min_independent_applied` |
+| **Unit** | `Unit`, `BatchLot` | `APPLIES_TO`, `DERIVES_FROM`, `SHARED_LOT`, `SHIPS_IN`, `TAINTS` | `id`, `kind`, `role`, `status`, `is_tainted`, `verdict`, `taint_hops`, `taint_via_path`, `hold_placed` |
+| **Shipment** | `Shipment`, `DispatchShipment` | `SHIPS_IN`, `DELIVERED_TO` | `id`, `kind`, `role`, `status`, `shipment_id` |
+| **Recipient** | `Recipient`, `CustomerAccount` | `DELIVERED_TO` | `id`, `kind`, `role`, `customer_name`, `contact_channel` |
+| **Action** | `Action`, `hold_unit`, `draft_notice`, `escalate_human`, `release_unit` | None (references entities by ID) | `id`, `kind`, `role`, `action_type`, `action_kind`, `target_entity_id`, `causal_path`, `path_hops`, `approved`, `requires_approval`, `reason_code` |
+| **Episode** | `Episode`, `IncidentEpisode` | `EPISODE_OUTCOME` | `id`, `episode_id`, `procedure_id`, `outcome`, `duration_seconds` |
+| **Procedure** | `Procedure`, `StandardProcedure` | `EPISODE_OUTCOME` | `id`, `procedure_id`, `kind`, `role` |
+
+---
+
+## 5. Cypher Queries and Graph Algorithms
+
+### Cypher Query Templates
+Tainted relies on 9 primary Cypher query templates in production:
+
+| Purpose | File & Function | Cypher Query Template |
+| :--- | :--- | :--- |
+| **1. Multi-Hop Trace** | `engine/falkordb_client.py:trace` | `MATCH (e:Event {id: $event})-[:TAINTS*]->(target) RETURN target, length(path) AS hops, [n in nodes(path) \| n.id] AS via_path` |
+| **2. Support Check** | `engine/falkordb_client.py:support` | `MATCH (d {id: $dec})<-[r]-(ev) WHERE r.role = 'support' OR type(r) IN ['SUPPORT', 'SUPPORTS'] RETURN ev.id, ev.kind, properties(ev)` |
+| **3. Lateral Traversal** | `engine/falkordb_client.py:siblings` | `MATCH (u {id: $u})-[r1]->(p)<-[r2]-(s) WHERE r1.role = 'derives-from' AND r2.role = 'derives-from' AND s.id <> $u RETURN p.id, collect(DISTINCT s.id)` <br/> `MATCH (u {id: $u})-[r]-(s) WHERE (r.role = 'lateral-link' OR type(r) = $lat_kind) AND s.id <> $u RETURN collect(DISTINCT s.id)` |
+| **4. Policy Gates** | `config/gates.yaml` & `engine/falkordb_client.py:evaluate_gate` | `MATCH (u:Unit {id: $entity_id}) WHERE u.is_tainted = true AND coalesce(u.status, '') <> 'reaffirmed' AND coalesce(u.verdict, '') <> 'reaffirmed' RETURN count(u) > 0 AS allowed` |
+| **5. Atomic Hold & Notice** | `engine/falkordb_client.py:atomic_hold_and_notice` | `MATCH (u {id: $unit_id}) WHERE (coalesce(u.is_tainted, false) = true OR coalesce(u.verdict, '') = 'tainted') AND coalesce(u.status, '') <> 'reaffirmed' SET u.status = 'quarantined', u.hold_placed = true MERGE (h:Action {id: $hold_id}) ON CREATE SET h.action_type = 'hold_unit', h.causal_path = $causal_path WITH u, h OPTIONAL MATCH (u)-[:SHIPS_IN]->(s:Shipment)-[:DELIVERED_TO]->(r:Recipient) FOREACH (exp IN [x IN collect(DISTINCT {rec_id: r.id, ship_id: s.id}) WHERE x.rec_id IS NOT NULL] \| MERGE (n:Action {id: 'act-notice-' + exp.rec_id + '-' + u.id}) ON CREATE SET n.action_type = 'draft_notice', n.requires_approval = true) RETURN u.id, h.id, count(r)` |
+| **6. Causal Explain** | `engine/falkordb_client.py:explain` | `MATCH (a:Action {id: $action}) RETURN a.id, a.causal_path, a.reason_code, properties(a)` |
+| **7. Time to Scope** | `api/incident_service.py:compute_graph_time_to_scope` | `MATCH (e:Event) MATCH ()-[r:TAINTS]->() WHERE e.timestamp IS NOT NULL AND r.timestamp IS NOT NULL RETURN (max(r.timestamp) - min(e.timestamp)) * 1000.0` |
+| **8. Record Episode** | `agents/memory.py:record_episode` | `MERGE (p:Procedure {id: $proc_id}) MERGE (e:Episode {id: $ep_id}) MERGE (e)-[r:EPISODE_OUTCOME]->(p) ON CREATE SET r.outcome = $outcome, r.duration_seconds = $duration` |
+| **9. Procedure Ranking** | `agents/memory.py:rank_procedures` | `MATCH (e:Episode)-[r:EPISODE_OUTCOME]->(p:Procedure) RETURN DISTINCT e.id, p.id, coalesce(r.outcome, e.outcome), coalesce(r.duration_seconds, e.duration_seconds)` |
+
+### Algorithm Tools Exposed over MCP
+The tool server (`toolserver/mcp_server.py`) exposes three graph algorithm tools to MCP clients:
+- `algo_shortest_path(source_id, target_id)`: Executes `MATCH (a {id: $a}), (b {id: $b}) RETURN shortestPath((a)-[*]->(b))`.
+- `algo_centrality(scope)`: Computes degree and betweenness ranking: `MATCH (n)-[r]-() RETURN n.id, count(r) AS score ORDER BY score DESC`.
+- `algo_components(scope)`: Identifies connected components for graph clustering.
+
+**Honest Tool Statement:** In live incident streaming runs, autonomous agents navigate the graph directly via parameterized Cypher queries for minimal latency. The algorithm tools are exposed over MCP for external investigative clients, ad-hoc analyst queries, and forensic inspections.
+
+---
+
+## 6. How Verdicts and Gates Work
+
+### Policy in Cypher
+Verdicts and actions are strictly governed by parameterized Cypher gate expressions evaluated directly on FalkorDB:
+1. **Quarantine Hold Gate (`hold_unit`)**: Evaluates `count(u) > 0` where `u.is_tainted = true` and `u.status <> 'reaffirmed'`. If an asset has been reaffirmed or is untainted, the gate returns `allowed: false` and prevents action creation.
+2. **Safe Release Gate (`release_unit`)**: Evaluates `count(u) > 0` where `u.is_tainted = false OR u.status = 'reaffirmed'`. Tainted units cannot be released.
+3. **Advisory Notice Gate (`draft_notice`)**: Requires that a contaminated unit has an active delivery path along `(u)-[:SHIPS_IN]->(s:Shipment)-[:DELIVERED_TO]->(r:Recipient)`.
+4. **Reaffirmation Invariant**: A decision is stamped `reaffirmed` if and only if independent corroborating evidence groups satisfy policy threshold: `independent_groups_count >= min_independent_support` (default: 2). If evidence is unverified or orphan, the decision is stamped `unverifiable` and escalated to a human.
+
+### LLM Role Audit
+All natural language generation is handled locally through `DeterministicLLMAdapter` (`agents/llm_adapter.py`):
+- `AdjudicatorAgent.draft_missing_link_question`: Formats the text of human questions when corroboration is missing.
+- `DispatcherAgent.draft_notice_text`: Drafts advisory text for human review before customer communication.
+- **Strict Boundary:** No external LLM APIs are invoked in live runs. The LLM never issues verdicts, cannot mutate verdicts, and cannot bypass Cypher gates.
+
+---
+
+## 7. Setup & Quickstart
 
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
 - Python 3.11+
 - Node.js 18+ & npm
 
-### Automated Start
-To bring up the entire stack (FalkorDB, FastAPI backend, and Next.js UI):
-
+### FalkorDB Docker Launch
+Start the official FalkorDB container:
 ```bash
-# 1. Start FalkorDB in Docker
-docker compose up -d
+docker run -p 6379:6379 -d --name falkordb-tainted falkordb/falkordb:latest
+```
+*(Or use `docker compose up -d` with the included `docker-compose.yml`.)*
 
-# 2. Install Python dependencies and launch API daemon (Port 8001)
+### Installation
+```bash
+# 1. Install backend dependencies
 pip install -r requirements.txt
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8001 &
 
-# 3. Install UI dependencies and start frontend (Port 3000)
-cd ui && npm install && npm run dev
+# 2. Install frontend dependencies
+cd ui && npm install && cd ..
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the **Forensic Evidence Dossier**.
+### One Command to Start Backend and UI
+- **Windows (PowerShell):**
+  ```powershell
+  Start-Process python -ArgumentList "-m uvicorn api.main:app --port 8001 --host 127.0.0.1"; cd ui; npm run dev
+  ```
+- **macOS / Linux (Bash):**
+  ```bash
+  python -m uvicorn api.main:app --port 8001 --host 127.0.0.1 & (cd ui && npm run dev)
+  ```
+
+For production mode without dev badges:
+```bash
+cd ui && npm run build && npm start
+```
+
+### Running a Demo
+Open [http://localhost:3000](http://localhost:3000) in your browser (window width 1440px). Select Seed `101` and click **"INVESTIGATE RECALL"**.
+
+*Verified on clean clone in this session (see `docs/SUBMISSION_EVIDENCE.md` Step 1h).*
 
 ---
 
-## 2. Core Architecture & Section 0 Rules
+## 8. Running Tests
 
-Tainted is designed with zero-trust architectural integrity adhering strictly to **ROADMAP.md Section 0**:
-
-1. **Rule 3 (Zero Hardcoding)**: Kinds, roles, and statuses are declared in ontologies (`packs/`), policies (`config/`), and registry tokens (`api/tokens.json`). No entity or batch IDs are hardcoded in application logic.
-2. **Rule 4 (Graph is the Only Shared State)**: Agents do not communicate directly. They coordinate asynchronously by reading and writing nodes and edges to the FalkorDB graph.
-3. **Rule 5 (LLM Never Decides; Cypher Gates Rule)**: Tool execution is governed by parameterized Cypher gate expressions evaluated directly in the graph. The LLM never sees a tool the gate has not unlocked.
-4. **Rule 7 (Every Action Has a Stored Path)**: Dispatched actions store their full causal trajectory (`causal_path` and `path_hops`), queryable at any time via the **Why Drawer**.
-
-### Agent Loop Topology
-
-```mermaid
-graph TD
-    Alert[Upstream Ingestion / Sensor Alert] --> Sentinel
-    Sentinel[Sentinel Agent] -->|Flags Suspect Evidence| Graph[(FalkorDB Graph)]
-    Graph --> Tracer[Tracer Agent]
-    Tracer -->|Propagates TAINTS Edges via Lateral Lots| Graph
-    Graph --> Adjudicator[Adjudicator Agent]
-    Adjudicator -->|Evaluates min_independent Policy| Graph
-    Graph --> Dispatcher[Dispatcher Agent]
-    Dispatcher -->|Dispatches Quarantine Holds & Release Actions| Actions[Dispatched Actions]
-    Dispatcher -->|Drafts Exposure Notice| HumanGate[Human Approval Gate]
+Run the complete test suite against live FalkorDB:
+```bash
+python -m pytest tests -q
 ```
+
+**Measured Session Result (Step 1a):**
+```
+........................................................................ [ 54%]
+...........................................................              [100%]
+131 passed in 1183.32s (0:19:43)
+```
+131 passed, 0 failed, 0 skipped.
 
 ---
 
-## 3. The 3-Minute Live Pitch & Reaffirmation Beat
+## 9. Demo Walkthrough
 
-| Timecode | Beat | Narrative & System Action |
-| :--- | :--- | :--- |
-| **0:00 - 0:30** | **The Crisis & Calm Paper** | Calm, tactile paper canvas loaded with seeded cold-chain topology. Presenter sets the stakes: Pathogen detected in raw spinach lot. |
-| **0:30 - 1:15** | **The Multi-Hop Lateral Spread** | Operator triggers incident. Sentinel detects spike; Tracer traverses blending tanks and lateral lot associations, painting affected nodes with vibrant **`HOLD`** stamps. |
-| **1:15 - 1:45** | **The Reaffirmation Beat (Core Pitch)** | A downstream lot shares the facility but had independent testing from 2 accredited labs (`min_independent=2`). Adjudicator verifies the independent path, draws back taint, and stamps the node with serene green **`REAFFIRMED`** ink. Blanket recall averted! |
-| **1:45 - 2:20** | **The Cypher Tool Gate & MCP** | Presenter opens Tool Gate Verifier. Shows that `hold_unit` cannot be called on a clean batch because the gate query omitted the tool. Shows `algo_shortest_path` over MCP. |
-| **2:20 - 3:00** | **Why Drawer & Human Governance** | Presenter clicks an action node. The Why Drawer slides out with the full causal chain-of-custody. Presenter reviews the drafted customer notice and signs off with the **Approve Notice** button. |
+A timed 3-minute screen recording walkthrough (detailed in `docs/VIDEO_SCRIPT.md`):
 
----
-
-## 4. Documentation Index
-
-- [**docs/CLAIMS.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/CLAIMS.md): Empirical benchmark metrics (100-seed run), crash safety hash invariance, and model boundary disclosures.
-- [**docs/DEMO_SCRIPT.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/DEMO_SCRIPT.md): Complete 3-minute presenter guide with exact timecodes and narrative beats.
-- [**docs/SUBMISSION.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/SUBMISSION.md): FalkorDB Hackathon Track 1 submission document and reviewer guide.
-- [**docs/AUDIT.md**](file:///c:/Users/SHIVANSH/wemakedevs/docs/AUDIT.md): Master engineering audit log with raw terminal outputs across all testing rounds.
+| Timecode | Beat | Action & Visual | Narrative |
+| :--- | :--- | :--- | :--- |
+| **0:00 – 0:30** | **The Problem** | Open [http://localhost:3000](http://localhost:3000) (Seed 101). | When trusted facts are retracted, manufacturers struggle with dependency tracing. Tainted models cold-chain topology in FalkorDB. |
+| **0:30 – 0:55** | **Trigger Alert** | Click "INVESTIGATE RECALL". | Sentinel Agent flags temperature telemetry sensor calibration drift (+2.8°C). |
+| **0:55 – 1:25** | **Multi-Hop & Lateral Link** | Tracer traverses graph; lateral edge flashes. | Contamination spreads through tanks; sideways connection into shared lot is exposed. |
+| **1:25 – 1:55** | **Reaffirmation** | Click green `REAFFIRMED` node. | Adjudicator verifies independent corroboration ($\ge 2$ groups); 5 clean batches are reaffirmed. |
+| **1:55 – 2:25** | **Quarantine & Why Drawer** | Click red `HOLD` node; Why Drawer opens. | Parameterized Cypher gate places hold on 7 affected units; Why Drawer displays full causal trajectory breadcrumbs. |
+| **2:25 – 2:45** | **Human Sign-Off** | Click "Approve Notice" button. | Outbound notice requires human governance; approval records episode to persistent memory. |
+| **2:45 – 3:00** | **Cypher Log & Close** | Press `L` to toggle live Cypher log. | Live stream of executed Cypher queries; closing disclosure on benchmark results and synthetic data. |
 
 ---
 
-## 5. Test Suites & Verification
+## 10. Evaluation
 
-### Run Standard Test Suite
-```bash
-python -m pytest tests/test_*.py tests/part_c/test_*.py -v
-```
+### Benchmark Definition
+- **Naive Recall Rule:** All product batches touched by the affected instrument type (`temperature_telemetry_sensor`) within a 48-hour window (defined in `scenarios/scenario_calibration_drift.yaml`).
+- **Share Recalled:** $\text{Share Recalled} = \frac{\text{Tainted Units}}{\text{Naive Scope}}$ under a declared blanket-recall rule on generated incidents. Lower is better (fewer clean units pulled).
+- **Crash Recovery:** Tested on a seed (seed 404) with mid-work OS-process termination of TracerAgent, matching the baseline graph hash with zero duplicate actions.
+- **Ground Truth Source:** Deterministic fault injection logs (`FaultInjector.recorded_faults`) compared against graph verdicts.
 
-### Run Adversarial Audit Suite
-```bash
-python -m pytest tests/audit/test_adversarial_audit.py -v
-```
+### 100-Seed Benchmark Empirical Results (`test_demand2_100_seed_benchmark.py`)
+Measured across 100 distinct randomized seeds on live FalkorDB:
 
-### Run Crash Safety Invariance Suite
-```bash
-python -m pytest tests/audit/test_demand1_crash_safety.py -v
-```
+| Metric | Mean | Min | Max | Target / Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Share Recalled (Tainted / Naive)** | **32.47%** | 21.43% | 45.00% | Lower is better |
+| **Safe Release Rate (Reaffirmed / Total)** | **12.16%** | 8.57% | 16.67% | Clean batches rescued |
+| **Tainted Units Count** | **7.73** | 6 | 9 | Causal perimeter |
+| **Reaffirmed Units Count** | **3.95** | 3 | 5 | $\ge 3$ per scenario |
+| **Unverifiable Units Count** | **2.32** | 1 | 4 | Escalated to human |
+| **Escalated Actions Count** | **2.32** | 1 | 4 | Human-in-the-loop |
+| **Hidden-Link Recall (Lateral Lots)** | **100.0%** | 100.0% | 100.0% | 100/100 lateral targets recalled |
+| **Time to Scope (Graph Operations)** | **2573.59 ms** | 1497.43 ms | 4033.63 ms | FalkorDB timestamp duration |
+| **Explanation Coverage** | **100.0%** | 100.0% | 100.0% | Every action has stored path |
+| **False Reaffirm Count** | **0** | 0 | 0 | Ground truth invariant |
 
-### Run 3 Keyboard Demo Runs
-```bash
-python scripts/verify_item7_demo_runs.py
-```
+### Fresh Seed Verification (Step 1i)
 
-### Run Linter
-```bash
-python scripts/lint.py
-```
+| Seed | Total Units | Held | Reaffirmed | Escalated | Unaffected | Tile Sum | Tile Sum == Total | Time to Scope (ms) | Lateral Links |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **7101** | 33 | 27 | 4 | 2 | 0 | 33 | **True** | 3197.83 ms | 25 |
+| **7202** | 32 | 25 | 4 | 3 | 0 | 32 | **True** | 3120.65 ms | 25 |
+| **7303** | 31 | 21 | 4 | 2 | 4 | 31 | **True** | 2458.45 ms | 18 |
 
-### Run Frontend Static Verification
-```bash
-cd ui && npm run lint && npm run build
-```
+*Tile Sum Invariant:* In 100% of tested seeds, `Held + Reaffirmed + Escalated + Unaffected == Total Units`.
+
+**Data Limitation Notice:** All benchmark evaluations and demo incidents are executed on procedurally generated, synthetic supply chain graphs and simulated sensor faults. Performance under real-world industrial noise, malformed telemetry, and million-node supply graphs has not been measured.
+
+---
+
+## 11. Known Limitations
+
+1. **Synthetic Data Generation:** All evaluations rely on procedurally generated cold-chain graphs (`FoodGraphGenerator`) and simulated telemetry drift faults (`FaultInjector`). Real industrial enterprise ERP / MES data has not been tested.
+2. **Agent Query Path vs MCP Algorithm Tools:** While graph algorithm tools (`algo_shortest_path`, `algo_centrality`, `algo_components`) are implemented and exposed over MCP, live multi-agent incident containment currently traverses Cypher directly in Python for lower round-trip latency.
+3. **Local Deterministic Formatting Adapter:** Natural language drafting uses a local template adapter (`DeterministicLLMAdapter`) rather than live commercial LLM APIs, prioritizing deterministic offline repeatability and test stability over linguistic variety.
+4. **Desktop Presentation Viewport:** The tactical forensic evidence board is designed for operator workstations at 1440px viewport width; mobile viewing is responsive but exhibits condensed graph typography.
